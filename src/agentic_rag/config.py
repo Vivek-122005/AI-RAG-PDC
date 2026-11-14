@@ -17,6 +17,13 @@ class Settings(BaseSettings):
     qdrant_api_key: str | None = None
     qdrant_collection: str = "documents"
 
+    # Embeddings / chunking
+    dense_model: str = "BAAI/bge-small-en-v1.5"
+    sparse_model: str = "Qdrant/bm25"
+    chunk_target_tokens: int = 350
+    chunk_max_tokens: int = 450
+    chunk_overlap_tokens: int = 50
+
     # LLM (local Ollama, running natively on the host)
     ollama_base_url: str = "http://localhost:11434"
     generator_model: str = "qwen3:4b"
