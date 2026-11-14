@@ -19,6 +19,21 @@ make check        # lint + typecheck + unit tests
 make api          # http://localhost:8000/health
 ```
 
+Ollama runs natively (not in Docker): `ollama pull qwen3:4b`.
+
+## Ingest & search (Phase 1)
+
+```bash
+make ingest                                   # fetch 4 sample arXiv papers + index them
+uv run rag ingest path/to/your/docs           # PDF, Markdown, HTML, TXT; re-runs skip unchanged files
+uv run rag docs                               # list indexed documents
+uv run rag search "how does CRAG grade retrieved documents?" --mode hybrid   # or dense / sparse
+```
+
+Ingestion keeps paragraph, page and heading structure, chunks within sections
+(~350 tokens, 50-token overlap), prefixes each chunk with `title > section` for embedding,
+and stores dense (bge-small) + BM25 sparse vectors in Qdrant for hybrid RRF search.
+
 ## Timeline
 
 - **2026-11-11** — Repository created; project scoped and proposal written.
@@ -27,7 +42,7 @@ make api          # http://localhost:8000/health
 ## Status
 
 - [x] Phase 0 — Foundations
-- [ ] Phase 1 — Ingestion & indexing
+- [x] Phase 1 — Ingestion & indexing
 - [ ] Phase 2 — Baseline RAG + evaluation
 - [ ] Phase 3 — Agentic orchestration
 - [ ] Phase 4 — Guardrails

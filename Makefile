@@ -1,4 +1,4 @@
-.PHONY: install up down lint format typecheck test test-integration api check
+.PHONY: install up down lint format typecheck test test-integration api check samples ingest
 
 install:
 	uv sync
@@ -31,3 +31,9 @@ api:
 	uv run uvicorn agentic_rag.api.main:app --reload
 
 check: lint typecheck test
+
+samples:
+	uv run python scripts/fetch_samples.py
+
+ingest: samples
+	uv run rag ingest corpus/samples
