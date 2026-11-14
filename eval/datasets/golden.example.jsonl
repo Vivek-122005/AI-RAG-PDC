@@ -1,3 +1,0 @@
-{"id": "q001", "question": "What chunk size does the paper recommend?", "answer": "512 tokens with 10% overlap.", "type": "single_hop", "source_docs": ["paper_a.pdf"], "answerable": true}
-{"id": "q002", "question": "How do methods in paper A and paper B differ in evaluation?", "answer": "A uses human raters; B uses automatic metrics.", "type": "comparison", "source_docs": ["paper_a.pdf", "paper_b.pdf"], "answerable": true}
-{"id": "q003", "question": "What is the CEO's salary?", "answer": null, "type": "unanswerable", "source_docs": [], "answerable": false}

@@ -12,3 +12,4 @@ corpus/private/
 eval/results/
 .DS_Store
 corpus/samples/
+eval/datasets/*.draft.jsonl
