@@ -12,6 +12,9 @@ dependencies = [
     "qdrant-client>=1.14",
     "structlog>=24.4",
     "httpx>=0.28.1",
+    "pymupdf>=2.1",
+    "fastembed>=0.6",
+    "beautifulsoup4>=4.15.0",
 ]
 
 [project.scripts]
@@ -51,4 +54,5 @@ mypy_path = "src"
 testpaths = ["tests"]
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
+filterwarnings = ["ignore:Payload indexes have no effect:UserWarning", "ignore:Failed to obtain server version:UserWarning"]
 markers = ["integration: needs running services (docker compose up)"]
