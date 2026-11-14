@@ -2,7 +2,7 @@ import pytest
 from httpx import ASGITransport, AsyncClient
 
 from agentic_rag.api import main
-from agentic_rag.config import Settings, get_settings
+from agentic_rag.core.config import Settings, get_settings
 
 
 @pytest.fixture
@@ -30,9 +30,3 @@ def test_missing_models_handles_latest_tag() -> None:
     s = Settings(_env_file=None, generator_model="llama3.2", critic_model="qwen3:4b")
     assert main.missing_models(s, {"llama3.2:latest", "qwen3:4b"}) == []
     assert main.missing_models(s, {"gemma2:9b"}) == ["llama3.2", "qwen3:4b"]
-
-
-@pytest.mark.integration
-async def test_health_qdrant_up(client: AsyncClient) -> None:
-    r = await client.get("/health")
-    assert r.json()["qdrant"] == "up"

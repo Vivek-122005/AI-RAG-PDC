@@ -12,7 +12,7 @@ from pathlib import Path
 import pymupdf
 from bs4 import BeautifulSoup
 
-from agentic_rag.ingestion.models import Block, Document, doc_id_for, file_hash
+from agentic_rag.domain.documents import Block, Document, doc_id_for, file_hash
 
 SUPPORTED_SUFFIXES = {".pdf", ".md", ".markdown", ".txt", ".html", ".htm"}
 

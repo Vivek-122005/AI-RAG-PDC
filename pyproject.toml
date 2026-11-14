@@ -28,6 +28,7 @@ dev = [
     "ruff>=0.8",
     "mypy>=1.13",
     "pre-commit>=4.0",
+    "import-linter>=2.16",
 ]
 
 [build-system]
@@ -44,15 +45,52 @@ target-version = "py312"
 [tool.ruff.lint]
 select = ["E", "F", "I", "B", "UP", "SIM", "ASYNC", "RUF"]
 
+[tool.ruff.lint.per-file-ignores]
+# Prompt templates read better unwrapped.
+"src/agentic_rag/pipelines/prompts.py" = ["E501"]
+"src/agentic_rag/evaluation/synth.py" = ["E501"]
+"src/agentic_rag/evaluation/judge.py" = ["E501"]
+"tests/**" = ["E501"]
+
 [tool.mypy]
 python_version = "3.12"
 strict = true
 plugins = ["pydantic.mypy"]
 mypy_path = "src"
 
+[[tool.mypy.overrides]]
+module = ["test_loaders"]
+disallow_untyped_calls = false  # pymupdf (used to build fixture PDFs) ships no type hints
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+pythonpath = ["tests"]  # shared test helpers (fakes.py)
+addopts = "--import-mode=importlib"
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
 filterwarnings = ["ignore:Payload indexes have no effect:UserWarning", "ignore:Failed to obtain server version:UserWarning"]
-markers = ["integration: needs running services (docker compose up)"]
+markers = ["integration: needs running services (tests/integration/, run `make up` first)"]
+
+# Architecture rules (docs/ARCHITECTURE.md). `make lint` fails if an import breaks them.
+[tool.importlinter]
+root_package = "agentic_rag"
+
+[[tool.importlinter.contracts]]
+name = "Layered architecture: modules only import from layers below"
+type = "layers"
+layers = [
+    "agentic_rag.api | agentic_rag.cli",
+    "agentic_rag.factory",
+    "agentic_rag.evaluation",
+    "agentic_rag.pipelines",
+    "agentic_rag.ingestion | agentic_rag.retrieval",
+    "agentic_rag.indexing | agentic_rag.llm",
+    "agentic_rag.domain",
+    "agentic_rag.core",
+]
+
+[[tool.importlinter.contracts]]
+name = "Only the composition root and entrypoints construct concrete providers"
+type = "forbidden"
+source_modules = ["agentic_rag.pipelines", "agentic_rag.retrieval", "agentic_rag.evaluation"]
+forbidden_modules = ["agentic_rag.llm.ollama", "agentic_rag.indexing.fastembed"]

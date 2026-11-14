@@ -14,14 +14,15 @@ jobs:
       - run: uv sync --locked
       - run: uv run ruff check .
       - run: uv run ruff format --check .
-      - run: uv run mypy src
-      - run: uv run pytest -m "not integration"
+      - run: uv run lint-imports
+      - run: uv run mypy src tests
+      - run: uv run pytest tests/unit
 
   integration:
     runs-on: ubuntu-latest
     services:
       qdrant:
-        image: qdrant/qdrant:v1.15.5
+        image: qdrant/qdrant:v1.20.0
         ports: ["6333:6333"]
     steps:
       - uses: actions/checkout@v4
@@ -29,4 +30,4 @@ jobs:
       - run: uv sync --locked
       - name: Wait for Qdrant
         run: for i in $(seq 1 30); do curl -sf localhost:6333/readyz && break; sleep 2; done
-      - run: uv run pytest -m integration
+      - run: uv run pytest tests/integration

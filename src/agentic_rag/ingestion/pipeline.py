@@ -7,10 +7,10 @@ from typing import Literal
 
 import structlog
 
+from agentic_rag.domain.documents import doc_id_for, file_hash
 from agentic_rag.indexing.store import QdrantStore
 from agentic_rag.ingestion.chunking import ChunkingConfig, chunk_document, embedding_text
 from agentic_rag.ingestion.loaders import SUPPORTED_SUFFIXES, load_document
-from agentic_rag.ingestion.models import doc_id_for, file_hash
 
 log = structlog.get_logger()
 

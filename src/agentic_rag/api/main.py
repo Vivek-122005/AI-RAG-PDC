@@ -11,8 +11,8 @@ from pydantic import BaseModel
 from qdrant_client import AsyncQdrantClient
 
 from agentic_rag import __version__
-from agentic_rag.config import Settings, get_settings
-from agentic_rag.logging import configure_logging
+from agentic_rag.core.config import Settings, get_settings
+from agentic_rag.core.logging import configure_logging
 
 log = structlog.get_logger()
 

@@ -1,6 +1,6 @@
 import pytest
 
-from agentic_rag.config import Settings
+from agentic_rag.core.config import Settings
 
 
 def test_defaults() -> None:

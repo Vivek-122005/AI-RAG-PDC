@@ -4,7 +4,7 @@ import logging
 
 import structlog
 
-from agentic_rag.config import Settings
+from agentic_rag.core.config import Settings
 
 
 def configure_logging(settings: Settings) -> None:

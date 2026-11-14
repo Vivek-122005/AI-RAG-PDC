@@ -1,5 +1,6 @@
 import itertools
 
+from agentic_rag.domain.documents import Block, Document
 from agentic_rag.ingestion.chunking import (
     ChunkingConfig,
     approx_tokens,
@@ -7,7 +8,6 @@ from agentic_rag.ingestion.chunking import (
     embedding_text,
     split_sentences,
 )
-from agentic_rag.ingestion.models import Block, Document
 
 
 def make_doc(blocks: list[Block]) -> Document:

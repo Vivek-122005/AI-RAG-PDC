@@ -5,7 +5,7 @@ from collections.abc import Sequence
 import pytest
 from qdrant_client import QdrantClient
 
-from agentic_rag.indexing.embeddings import SparseVec
+from agentic_rag.indexing.embedder import SparseVec
 from agentic_rag.indexing.store import QdrantStore
 
 
@@ -39,6 +39,13 @@ class FakeEmbedder:
 
     def embed_query(self, text: str) -> tuple[list[float], SparseVec]:
         return self._dense(text), self._sparse(text)
+
+
+def pytest_collection_modifyitems(items: list[pytest.Item]) -> None:
+    """Everything under tests/integration/ needs running services."""
+    for item in items:
+        if "integration" in item.path.parts:
+            item.add_marker(pytest.mark.integration)
 
 
 @pytest.fixture

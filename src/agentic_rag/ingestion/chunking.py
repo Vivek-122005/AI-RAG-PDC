@@ -16,7 +16,7 @@ import re
 from collections.abc import Iterable
 from dataclasses import dataclass
 
-from agentic_rag.ingestion.models import Block, Chunk, Document, chunk_id_for
+from agentic_rag.domain.documents import Block, Chunk, Document, chunk_id_for
 
 _TOKEN_RE = re.compile(r"\w+|[^\w\s]")
 _SENTENCE_RE = re.compile(r"(?<=[.!?])\s+(?=[A-Z0-9\"'(\[])")

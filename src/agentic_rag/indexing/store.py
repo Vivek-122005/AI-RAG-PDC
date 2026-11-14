@@ -1,43 +1,17 @@
 """Qdrant collection with named dense + sparse vectors and hybrid (RRF) search."""
 
 from collections.abc import Sequence
-from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Any
 
 from qdrant_client import QdrantClient, models
 
-from agentic_rag.indexing.embeddings import Embedder, SparseVec
-from agentic_rag.ingestion.models import Chunk, Document
+from agentic_rag.domain.documents import Chunk, Document
+from agentic_rag.domain.search import SearchHit
+from agentic_rag.indexing.embedder import Embedder, SparseVec
 
 DENSE = "dense"
 SPARSE = "sparse"
-
-
-@dataclass
-class SearchHit:
-    chunk_id: str
-    score: float
-    text: str
-    doc_id: str
-    title: str
-    source: str
-    section_path: list[str]
-    page_start: int | None
-    page_end: int | None
-    payload: dict[str, Any] = field(repr=False, default_factory=dict)
-
-    @property
-    def citation(self) -> str:
-        pages = ""
-        if self.page_start is not None:
-            pages = (
-                f" p.{self.page_start}"
-                if self.page_start == self.page_end
-                else f" pp.{self.page_start}-{self.page_end}"
-            )
-        section = f" § {self.section_path[-1]}" if self.section_path else ""
-        return f"{self.title}{section}{pages}"
 
 
 def _sparse(v: SparseVec) -> models.SparseVector:

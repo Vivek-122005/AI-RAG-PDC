@@ -24,11 +24,16 @@ class Settings(BaseSettings):
     chunk_max_tokens: int = 450
     chunk_overlap_tokens: int = 50
 
+    # Retrieval
+    reranker_model: str = "Xenova/ms-marco-MiniLM-L-12-v2"
+    retrieve_candidates: int = 20  # hybrid candidates passed to the reranker
+    retrieve_top_k: int = 5  # chunks given to the LLM
+
     # LLM (local Ollama, running natively on the host)
     ollama_base_url: str = "http://localhost:11434"
-    generator_model: str = "qwen3:4b"
-    critic_model: str = "qwen3:4b"
-    judge_model: str = "gemma2:9b"  # offline evaluation only
+    generator_model: str = "qwen3:4b-instruct"
+    critic_model: str = "qwen3:4b-instruct"
+    judge_model: str = "gemma3:4b"  # offline evaluation only; different family from generator
     llm_num_ctx: int = 8192
     llm_timeout_s: float = 120.0
 
