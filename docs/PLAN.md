@@ -68,9 +68,10 @@ A question-answering service over a **private document corpus** that does not tr
 
 | Role | Default | Notes |
 |---|---|---|
-| Generator / drafter | `qwen3:4b` (~2.6 GB, Q4) | Good instruction-following and JSON output for its size. Alternative: `llama3.2:3b`. |
+| Generator / drafter | `qwen3:4b-instruct` (~2.5 GB, Q4) | Good instruction-following and JSON output for its size. **Not** `qwen3:4b`: that tag is the thinking-only model, which always emits long reasoning (slow, and `think=false` leaks it into content). Alternative: `llama3.2:3b`. |
 | Planner / critic / grader | same model, different prompts | Loading one model avoids swapping. Keep `think` off for speed except where it measurably helps the critic. |
-| Eval judge (Ragas, offline only) | `gemma2:9b` (already installed) | Run evals with other services stopped. A bigger judge than the system under test reduces self-grading bias. |
+| Eval judge (offline only) | `gemma3:4b` (~3.4 GB) | Different model family from the generator, which reduces self-grading bias. `gemma2:9b` was tried first: at 8k context it needs 7.3 GB and spills half onto CPU on an 8 GB machine, making evals impractically slow. |
+| Question synthesis | `qwen3:4b-instruct` | Drafts only; every item is reviewed by hand. |
 
 **Risk:** small models are weaker critics. Phase 3 must measure critic precision/recall against hand labels; if the critic is unreliable, options are a reranker-score/NLI-based groundedness check (cheap, deterministic) combined with the LLM verdict, or a hosted judge for eval only. Keep context windows modest (`num_ctx` 8k) — retrieved evidence must fit.
 
@@ -112,6 +113,50 @@ Each phase lists **parts**, an **exit criterion**, and **what you learn**. Don't
 
 **Exit:** a baseline scorecard you trust. *Without this, you cannot prove self-correction helps.*
 **Learn:** LLM evaluation methodology, LLM-as-judge caveats, retrieval tuning with data.
+
+#### Phase 2 results (run `baseline-v1`, 2026-11-14)
+
+Setup: 45-item golden set (25 single-hop, 4 multi-hop, 6 comparison, 10 unanswerable),
+hybrid RRF search (20 candidates) → MiniLM-L12 rerank → top-5, `qwen3:4b-instruct` answers,
+`gemma3:4b` judges. Ragas itself was replaced by our own claim-level faithfulness and 1–5
+correctness judge, because it is easier to run offline on 8 GB and to inspect.
+
+**Retrieval ablation** (35 answerable items, no LLM):
+
+| config | hit@5 | hit@1 | MRR@5 | evidence recall@5 |
+|---|---|---|---|---|
+| dense / none | 0.686 | 0.200 | 0.390 | 0.629 |
+| sparse / none | **0.914** | 0.571 | 0.691 | 0.829 |
+| hybrid / none | 0.829 | 0.457 | 0.601 | 0.771 |
+| dense / MiniLM-L12 | 0.800 | 0.543 | 0.645 | 0.757 |
+| **hybrid / MiniLM-L12** (default) | 0.886 | **0.600** | **0.700** | **0.871** |
+| hybrid / jina-tiny | 0.857 | 0.486 | 0.618 | 0.814 |
+
+Caveat: BM25 is flattered because synthesized questions reuse passage wording. Hand-written
+questions should narrow the sparse/dense gap.
+
+**Baseline scorecard:**
+
+| | overall | single-hop | multi-hop | comparison | unanswerable |
+|---|---|---|---|---|---|
+| retrieval hit@5 | 0.886 | 0.960 | 1.000 | **0.500** | - |
+| evidence recall@5 | 0.871 | 0.960 | 1.000 | **0.417** | - |
+| accuracy (correctness ≥ 4) | 0.886 | 0.960 | 1.000 | **0.500** | - |
+| false refusal rate | 0.114 | 0.040 | 0.000 | **0.500** | - |
+| correct refusal rate | - | - | - | - | 0.900 |
+| latency p50 / p95 (s) | 39 / 73 | | | | |
+
+What this tells Phase 3:
+- **Comparison questions fail at retrieval, not generation.** One query cannot pull evidence
+  from two papers into the top-5, so the model honestly refuses (3 of 5 failures). This is
+  exactly what question decomposition is for.
+- **Entity substitution:** for "What GPU did the *Ragas* authors use…" it answered with the
+  *RAG* paper's V100s, citing it. The critic needs a question-relevance check, not only
+  "is each claim supported by the evidence".
+- **The judge does not discriminate.** gemma3:4b gave every non-refused answer 5/5 and full
+  faithfulness, including one answer whose reasoning contradicts itself (mh-06). The judge
+  scores are a ceiling; until the judge is calibrated against a hand-labelled sample, trust
+  the deterministic metrics (retrieval, refusals, cited evidence) more than the judge scores.
 
 ### Phase 3 — Agentic Orchestration (the core)
 1. LangGraph `State` (question, sub_questions, evidence, draft, critique, iteration, trace).
@@ -192,25 +237,9 @@ Each phase lists **parts**, an **exit criterion**, and **what you learn**. Don't
 
 ---
 
-## 5. Repo layout (target)
+## 5. Repo layout
 
-```
-src/agentic_rag/
-  config.py            settings
-  logging.py
-  ingestion/           loaders, chunking, metadata, pipeline
-  indexing/            embeddings, qdrant store
-  retrieval/           hybrid search, rerank, grading
-  llm/                 provider abstraction, prompts
-  agent/               langgraph state, nodes, graph
-  guardrails/          input, evidence, output
-  observability/       otel setup
-  api/                 fastapi app, routes, schemas
-  cli.py
-eval/                  datasets, runner, results
-tests/                 unit, integration, redteam
-docker/  compose.yaml  Makefile  .github/workflows/
-```
+See [ARCHITECTURE.md](ARCHITECTURE.md): modular monolith with enforced layers (`core → domain → indexing/llm → ingestion/retrieval → pipelines → evaluation → factory → api/cli`).
 
 ## 6. Working agreement
 

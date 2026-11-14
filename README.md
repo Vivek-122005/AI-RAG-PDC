@@ -5,7 +5,8 @@ questions, retrieves evidence, drafts an answer, critiques it for groundedness a
 and re-plans/re-retrieves when the critique fails — refusing honestly when the corpus can't
 support an answer.
 
-See [docs/PLAN.md](docs/PLAN.md) for the phased build plan.
+- [docs/PLAN.md](docs/PLAN.md): phased build plan
+- [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md): structure, layers and conventions
 
 ## Quickstart
 
@@ -34,6 +35,21 @@ Ingestion keeps paragraph, page and heading structure, chunks within sections
 (~350 tokens, 50-token overlap), prefixes each chunk with `title > section` for embedding,
 and stores dense (bge-small) + BM25 sparse vectors in Qdrant for hybrid RRF search.
 
+## Ask questions & evaluate (Phase 2)
+
+Models run locally in Ollama (`qwen3:4b-instruct` answers, `gemma3:4b` grades):
+
+```bash
+ollama pull qwen3:4b-instruct && ollama pull gemma3:4b
+uv run rag ask "What three actions can CRAG trigger?"      # answer with [n] citations
+make eval-retrieval RUN=exp1                                # compare search modes / rerankers (no LLM)
+make eval RUN=baseline                                      # answer → judge → eval/results/baseline/report.md
+```
+
+The golden set ([eval/datasets/golden.jsonl](eval/datasets/golden.jsonl)) has 45 questions:
+single-hop, multi-hop, cross-paper comparisons and unanswerable ones the system must refuse.
+Evidence is stored as verbatim quotes, so the set survives chunking changes.
+
 ## Timeline
 
 - **2026-11-11** — Repository created; project scoped and proposal written.
@@ -43,7 +59,7 @@ and stores dense (bge-small) + BM25 sparse vectors in Qdrant for hybrid RRF sear
 
 - [x] Phase 0 — Foundations
 - [x] Phase 1 — Ingestion & indexing
-- [ ] Phase 2 — Baseline RAG + evaluation
+- [x] Phase 2 — Baseline RAG + evaluation
 - [ ] Phase 3 — Agentic orchestration
 - [ ] Phase 4 — Guardrails
 - [ ] Phase 5 — Observability
