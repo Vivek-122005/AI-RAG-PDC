@@ -15,6 +15,7 @@ dependencies = [
     "pymupdf>=2.1",
     "fastembed>=0.6",
     "beautifulsoup4>=4.15.0",
+    "langgraph>=1.0",
 ]
 
 [project.scripts]
@@ -48,6 +49,7 @@ select = ["E", "F", "I", "B", "UP", "SIM", "ASYNC", "RUF"]
 [tool.ruff.lint.per-file-ignores]
 # Prompt templates read better unwrapped.
 "src/agentic_rag/pipelines/prompts.py" = ["E501"]
+"src/agentic_rag/pipelines/agent/prompts.py" = ["E501"]
 "src/agentic_rag/evaluation/synth.py" = ["E501"]
 "src/agentic_rag/evaluation/judge.py" = ["E501"]
 "tests/**" = ["E501"]

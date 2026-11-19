@@ -2,6 +2,7 @@
 
 import re
 from dataclasses import dataclass, field
+from typing import Any
 
 from agentic_rag.domain.search import SearchHit
 from agentic_rag.llm.base import Usage
@@ -20,6 +21,12 @@ def is_refusal(text: str) -> bool:
     return _norm(REFUSAL) in norm or norm.startswith("i cannot answer")
 
 
+def cited_ids(text: str, n_contexts: int) -> list[int]:
+    """1-based evidence ids cited as [n] in `text` that refer to one of `n_contexts` passages."""
+    ids = {int(m) for m in _CITATION_RE.findall(text)}
+    return sorted(i for i in ids if 1 <= i <= n_contexts)
+
+
 @dataclass
 class Answer:
     question: str
@@ -28,6 +35,7 @@ class Answer:
     candidates: list[SearchHit] = field(default_factory=list)  # pre-rerank, for evaluation
     usage: Usage = field(default_factory=Usage)
     timings: dict[str, float] = field(default_factory=dict)
+    trace: list[dict[str, Any]] = field(default_factory=list)  # agent steps, for debugging
 
     @property
     def refused(self) -> bool:
@@ -36,8 +44,7 @@ class Answer:
     @property
     def cited_ids(self) -> list[int]:
         """1-based evidence ids cited in the answer that refer to real contexts."""
-        ids = {int(m) for m in _CITATION_RE.findall(self.text)}
-        return sorted(i for i in ids if 1 <= i <= len(self.contexts))
+        return cited_ids(self.text, len(self.contexts))
 
     @property
     def cited_contexts(self) -> list[SearchHit]:

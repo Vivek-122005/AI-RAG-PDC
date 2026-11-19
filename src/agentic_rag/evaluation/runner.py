@@ -51,6 +51,7 @@ def run_generate(
                 "candidates": [records.hit_to_record(h) for h in ans.candidates],
                 "usage": vars(ans.usage),
                 "timings": ans.timings,
+                "trace": ans.trace,
             },
         )
         log.info(

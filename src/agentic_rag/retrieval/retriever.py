@@ -1,7 +1,7 @@
 """Two-stage retrieval: broad hybrid recall from the vector store, then precise reranking."""
 
 from dataclasses import dataclass, field
-from typing import Literal
+from typing import Literal, Protocol
 
 from agentic_rag.domain.search import SearchHit
 from agentic_rag.indexing.store import QdrantStore
@@ -21,6 +21,12 @@ class RetrievalConfig:
 class RetrievalResult:
     contexts: list[SearchHit]  # final, reranked
     candidates: list[SearchHit] = field(default_factory=list)  # stage-1 hits (for evaluation)
+
+
+class EvidenceRetriever(Protocol):
+    """What answer pipelines need from retrieval: a query in, ranked evidence out."""
+
+    def retrieve(self, query: str) -> RetrievalResult: ...
 
 
 class Retriever:

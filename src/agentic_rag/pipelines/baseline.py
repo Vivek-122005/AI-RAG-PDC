@@ -10,11 +10,13 @@ from agentic_rag.domain.search import SearchHit
 from agentic_rag.llm.base import LLM, Message
 from agentic_rag.pipelines.answer import Answer
 from agentic_rag.pipelines.prompts import ANSWER_SYSTEM, REFUSAL, answer_user_prompt
-from agentic_rag.retrieval.retriever import Retriever
+from agentic_rag.retrieval.retriever import EvidenceRetriever
 
 
 class BaselineRAG:
-    def __init__(self, retriever: Retriever, llm: LLM, max_answer_tokens: int = 400) -> None:
+    def __init__(
+        self, retriever: EvidenceRetriever, llm: LLM, max_answer_tokens: int = 400
+    ) -> None:
         self.retriever = retriever
         self.llm = llm
         self.max_answer_tokens = max_answer_tokens

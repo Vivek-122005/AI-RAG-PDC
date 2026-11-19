@@ -10,6 +10,7 @@ from agentic_rag.core.config import Settings
 from agentic_rag.indexing.fastembed import FastEmbedEmbedder
 from agentic_rag.indexing.store import QdrantStore
 from agentic_rag.llm.ollama import OllamaLLM
+from agentic_rag.pipelines.agent import AgentConfig, AgenticRAG
 from agentic_rag.pipelines.baseline import BaselineRAG
 from agentic_rag.retrieval.rerank import FastEmbedReranker, NoopReranker, Reranker
 from agentic_rag.retrieval.retriever import RetrievalConfig, Retriever, SearchMode
@@ -35,8 +36,9 @@ def make_retriever(
     store: QdrantStore | None = None,
     rerank: bool = True,
     mode: SearchMode = "hybrid",
+    top_k: int | None = None,
 ) -> Retriever:
-    config = RetrievalConfig(mode, settings.retrieve_candidates, settings.retrieve_top_k)
+    config = RetrievalConfig(mode, settings.retrieve_candidates, top_k or settings.retrieve_top_k)
     return Retriever(store or make_store(settings), make_reranker(settings, rerank), config)
 
 
@@ -53,3 +55,21 @@ def make_baseline(
     settings: Settings, rerank: bool = True, mode: SearchMode = "hybrid"
 ) -> BaselineRAG:
     return BaselineRAG(make_retriever(settings, rerank=rerank, mode=mode), make_llm(settings))
+
+
+def make_agent(
+    settings: Settings,
+    config: AgentConfig | None = None,
+    rerank: bool = True,
+    mode: SearchMode = "hybrid",
+) -> AgenticRAG:
+    generator = make_llm(settings)
+    # Reuse one client when the critic is the same model, so Ollama keeps a single copy loaded.
+    critic = (
+        generator
+        if settings.critic_model == settings.generator_model
+        else make_llm(settings, settings.critic_model)
+    )
+    config = config or AgentConfig()
+    retriever = make_retriever(settings, rerank=rerank, mode=mode, top_k=config.retrieve_depth)
+    return AgenticRAG(retriever, generator, critic, config)
