@@ -95,3 +95,26 @@ def test_generate_judge_report_end_to_end(tmp_path: Path) -> None:
     assert m["generation"]["correct_refusal_rate"] == 0.0  # q2 should have been refused
     report_md = (run_dir / "report.md").read_text()
     assert "## Failures (1)" in report_md and "q2" in report_md
+
+
+def test_generate_skips_one_failure_but_aborts_on_a_streak(tmp_path: Path) -> None:
+    from agentic_rag.llm.base import LLMError
+
+    items = [GoldenItem(id=f"q{i}", question=f"q{i}", type="single_hop") for i in range(6)]
+    down = {"q1", "q3", "q4"}  # q1 fails alone; q3, q4 start a streak
+
+    def answer_fn(q: str) -> Answer:
+        if q in down:
+            raise LLMError("connection refused")
+        return Answer(q, "ok [1].", [hit("x")])
+
+    run_dir = tmp_path / "run"
+    with pytest.raises(runner.EvalAborted, match="2 consecutive failures"):
+        runner.run_generate(items, answer_fn, run_dir, {}, max_consecutive_failures=2)
+    written = [json.loads(line)["id"] for line in (run_dir / "answers.jsonl").open()]
+    assert written == ["q0", "q2"]  # kept, so a rerun resumes from the failures
+
+    down.clear()
+    runner.run_generate(items, answer_fn, run_dir, {}, max_consecutive_failures=2)
+    written = [json.loads(line)["id"] for line in (run_dir / "answers.jsonl").open()]
+    assert sorted(written) == [f"q{i}" for i in range(6)]

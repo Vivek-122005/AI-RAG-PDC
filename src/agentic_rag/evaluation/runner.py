@@ -23,11 +23,42 @@ from agentic_rag.pipelines.answer import Answer
 log = structlog.get_logger()
 
 AnswerFn = Callable[[str], Answer]
+MAX_CONSECUTIVE_FAILURES = 3
+
+
+class EvalAborted(RuntimeError):
+    """Raised when a stage keeps failing, e.g. the model server is down. Rows written so
+    far are kept, so rerunning the same command resumes where it stopped."""
+
+
+class _FailureGuard:
+    """Skip an occasional bad item, but abort on a run of failures instead of logging
+    an error for every remaining item and reporting success."""
+
+    def __init__(self, stage: str, limit: int) -> None:
+        self.stage, self.limit, self.streak = stage, limit, 0
+
+    def ok(self) -> None:
+        self.streak = 0
+
+    def failed(self, item_id: str, exc: Exception) -> None:
+        self.streak += 1
+        log.error(f"{self.stage}_failed", id=item_id, error=str(exc))
+        if self.streak >= self.limit:
+            raise EvalAborted(
+                f"{self.stage}: {self.streak} consecutive failures, last: {exc}. "
+                "Fix the cause and rerun the same command to resume."
+            ) from exc
 
 
 def run_generate(
-    items: Sequence[GoldenItem], answer_fn: AnswerFn, run_dir: Path, config: dict[str, Any]
+    items: Sequence[GoldenItem],
+    answer_fn: AnswerFn,
+    run_dir: Path,
+    config: dict[str, Any],
+    max_consecutive_failures: int = MAX_CONSECUTIVE_FAILURES,
 ) -> None:
+    guard = _FailureGuard("generate", max_consecutive_failures)
     path = run_dir / records.ANSWERS
     done = {r["id"] for r in records.read_jsonl(path)}
     run_dir.mkdir(parents=True, exist_ok=True)
@@ -38,8 +69,9 @@ def run_generate(
         try:
             ans = answer_fn(item.question)
         except LLMError as exc:
-            log.error("generate_failed", id=item.id, error=str(exc))
+            guard.failed(item.id, exc)
             continue
+        guard.ok()
         records.append_jsonl(
             path,
             {
@@ -63,7 +95,13 @@ def run_generate(
         )
 
 
-def run_judge(items: Sequence[GoldenItem], judge: LLM, run_dir: Path) -> None:
+def run_judge(
+    items: Sequence[GoldenItem],
+    judge: LLM,
+    run_dir: Path,
+    max_consecutive_failures: int = MAX_CONSECUTIVE_FAILURES,
+) -> None:
+    guard = _FailureGuard("judge", max_consecutive_failures)
     by_id = {i.id: i for i in items}
     path = run_dir / records.JUDGMENTS
     done = {r["id"] for r in records.read_jsonl(path)}
@@ -84,8 +122,9 @@ def run_judge(items: Sequence[GoldenItem], judge: LLM, run_dir: Path) -> None:
                     judge, item.question, item.reference_answer or "", answer["answer"]
                 )
             except LLMError as exc:
-                log.error("judge_failed", id=item.id, error=str(exc))
+                guard.failed(item.id, exc)
                 continue
+            guard.ok()
             row |= {
                 "faithfulness": score,
                 "claims": [c.model_dump() for c in claims],

@@ -2,6 +2,7 @@
 
 import argparse
 import json
+import sys
 from dataclasses import asdict
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -77,6 +78,16 @@ def compare(args: argparse.Namespace, settings: Settings) -> int:
 
 
 def run_stage(args: argparse.Namespace, settings: Settings) -> int:
+    from agentic_rag.evaluation.runner import EvalAborted
+
+    try:
+        return _run_stage(args, settings)
+    except EvalAborted as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
+
+
+def _run_stage(args: argparse.Namespace, settings: Settings) -> int:
     from agentic_rag.evaluation.dataset import load_dataset
 
     items = load_dataset(args.dataset)
