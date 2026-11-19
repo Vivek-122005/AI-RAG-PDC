@@ -39,10 +39,11 @@ samples:
 ingest: samples
 	uv run rag ingest corpus/samples
 
+PIPELINE ?= baseline
 RUN ?= $(shell date +%Y%m%d-%H%M)
 
-eval:  ## full baseline eval: make eval RUN=my-run
-	uv run rag eval all --run $(RUN)
+eval:  ## full eval: make eval RUN=my-run [PIPELINE=agent]
+	uv run rag eval all --run $(RUN) --pipeline $(PIPELINE)
 
 eval-retrieval:  ## retrieval-only ablation (no LLM)
 	uv run rag eval retrieval --run $(RUN)

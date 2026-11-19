@@ -1,4 +1,4 @@
-"""Evaluation commands: `rag eval {synth,generate,judge,report,all,retrieval}`."""
+"""Evaluation commands: `rag eval {synth,generate,judge,report,all,retrieval,compare}`."""
 
 import argparse
 import json
@@ -26,6 +26,11 @@ def register(sub: "argparse._SubParsersAction[argparse.ArgumentParser]") -> None
     s.add_argument("--model", help="defaults to GENERATOR_MODEL")
     s.add_argument("--out", type=Path, default=Path("eval/datasets/golden.draft.jsonl"))
     s.set_defaults(handler=synth)
+
+    s = stages.add_parser("compare", help="compare finished runs side by side")
+    s.add_argument("runs", nargs="+", help=f"run names under {RESULTS_DIR}/")
+    s.add_argument("--out", type=Path, help="also write the table to this markdown file")
+    s.set_defaults(handler=compare)
 
     for name, help_text in [
         ("generate", "answer every question with the system under test"),
@@ -58,6 +63,16 @@ def synth(args: argparse.Namespace, settings: Settings) -> int:
     items = synthesize(llm, chunks, args.single, args.multi)
     save_dataset(items, args.out)
     print(f"wrote {len(items)} draft items to {args.out} (review before use)")
+    return 0
+
+
+def compare(args: argparse.Namespace, settings: Settings) -> int:
+    from agentic_rag.evaluation.compare import compare_markdown, load_metrics
+
+    table = compare_markdown(load_metrics([RESULTS_DIR / r for r in args.runs]))
+    print(table)
+    if args.out:
+        args.out.write_text(table)
     return 0
 
 
