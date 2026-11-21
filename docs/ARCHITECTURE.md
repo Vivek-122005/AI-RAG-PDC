@@ -28,7 +28,7 @@ and must not import each other.
 ├──────────────────────────────────────────────────────────────┤
 │  ingestion   │   retrieval            write path │ read path │
 ├──────────────────────────────────────────────────────────────┤
-│  indexing    │   llm                  infrastructure adapters│
+│  indexing │ llm │ guardrails      adapters, rule-based checks │
 ├──────────────────────────────────────────────────────────────┤
 │  domain                               shared data types      │
 ├──────────────────────────────────────────────────────────────┤
@@ -50,8 +50,10 @@ forbids business logic (pipelines, retrieval, evaluation) from importing concret
 | `llm/` | `LLM` Protocol (generate, structured output, stream) + Ollama adapter | `base.py`, `ollama.py` |
 | `indexing/` | `Embedder` Protocol, fastembed adapter, Qdrant collection and hybrid search | `embedder.py`, `fastembed.py`, `store.py` |
 | `ingestion/` | **Write path**: load files → structure-aware chunks → idempotent upsert | `loaders.py`, `chunking.py`, `pipeline.py` |
+| `guardrails/` | Rule-based safety checks with no extra models: prompt-injection heuristics, PII redaction, input/output guards | `injection.py`, `pii.py`, `checks.py` |
 | `retrieval/` | **Read path**: hybrid candidate search → cross-encoder rerank | `retriever.py`, `rerank.py` |
 | `pipelines/` | Answer pipelines returning `Answer`: the one-shot baseline (control group) and the self-correcting agent | `baseline.py`, `answer.py`, `prompts.py` |
+| `pipelines/guarded.py` | Wraps any pipeline with the input and output guards | `guarded.py` |
 | `pipelines/agent/` | LangGraph agent: planner, per-query retrieval, drafter, critic, re-plan. Decision rules are pure functions | `graph.py`, `policy.py`, `evidence.py`, `schemas.py`, `prompts.py` |
 | `evaluation/` | Golden datasets, synthesis, LLM judge, metrics, reports, ablations | `runner.py`, `metrics.py`, `report.py` |
 | `factory.py` | Builds concrete objects from `Settings`. The only place that picks implementations | |
@@ -97,6 +99,25 @@ judge    (different model)   → judgments.jsonl
 report                       → metrics.json + report.md
 ```
 
+## Guardrails (defence in depth)
+
+Every answer passes four independent layers, so one miss is not a breach:
+
+| Layer | Where | What it stops |
+|---|---|---|
+| Input guard | `guardrails/checks.py` | empty or oversized input; direct prompt injection (weighted rules over NFKC-normalised text, zero-width characters removed); PII, which is redacted before the LLM or the logs see it |
+| Untrusted documents | `ingestion/pipeline.py`, `Retriever(passage_filter=…)` | passages that carry instructions for the model: flagged at ingest, dropped at query time (so older indexes are covered too) |
+| Spotlighting | `pipelines/prompts.py` | evidence is wrapped in `<evidence>` blocks it cannot close or forge; prompts say evidence is data |
+| Output guard | `guardrails/checks.py` | citations to passages never shown are removed; answers left with no valid citation are refused; system-prompt leaks refused; PII redacted |
+
+The detectors are regexes on purpose: a model-based classifier (e.g. Presidio, a DeBERTa
+injection classifier) costs ~0.5 GB RAM each, which the 8 GB target can't spare. Each
+sits behind one function (`detect_injection`, `find_pii`) so it can be swapped later.
+On the 216 chunks of the sample corpus the injection rules flag nothing, and PII
+detection finds only the authors' real e-mail addresses. `tests/redteam/` holds the
+adversarial suite (direct and indirect injection, PII, fabricated citations, prompt
+leaks, false positives); it runs with the unit tests in CI.
+
 ## Conventions
 
 - **Depend on interfaces.** Cross-layer collaborators are `typing.Protocol`s (`LLM`, `Embedder`,
@@ -120,6 +141,7 @@ report                       → metrics.json + report.md
 ├── src/agentic_rag/        the application package (layers above)
 ├── tests/
 │   ├── unit/<module>/      mirrors src/; fast, no services (in-memory Qdrant, fakes)
+│   ├── redteam/            adversarial guardrail cases (run with unit tests)
 │   ├── integration/        needs `make up` + Ollama; auto-marked `integration`
 │   ├── conftest.py         shared fixtures
 │   └── fakes.py            test doubles for Protocols

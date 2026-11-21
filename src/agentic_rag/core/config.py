@@ -37,6 +37,10 @@ class Settings(BaseSettings):
     retrieve_candidates: int = 20  # hybrid candidates passed to the reranker
     retrieve_top_k: int = 5  # chunks given to the LLM
 
+    # Guardrails (rule-based: no extra models)
+    guardrails_enabled: bool = True
+    max_question_chars: int = 1000
+
     # LLM (local Ollama, running natively on the host)
     ollama_base_url: str = "http://localhost:11434"
     generator_model: str = "qwen3:4b-instruct"

@@ -23,7 +23,7 @@ typecheck:
 	uv run mypy src tests
 
 test:
-	uv run pytest tests/unit
+	uv run pytest tests/unit tests/redteam
 
 test-integration:
 	uv run pytest tests/integration

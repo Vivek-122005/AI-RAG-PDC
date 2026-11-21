@@ -11,7 +11,7 @@ from agentic_rag.core.config import Settings
 
 if TYPE_CHECKING:
     from agentic_rag.evaluation.dataset import GoldenItem
-    from agentic_rag.pipelines.baseline import BaselineRAG
+    from agentic_rag.pipelines.answer import AnswerPipeline
     from agentic_rag.retrieval.retriever import SearchMode
 
 RESULTS_DIR = Path("eval/results")
@@ -51,6 +51,7 @@ def register(sub: "argparse._SubParsersAction[argparse.ArgumentParser]") -> None
             s.add_argument("--no-decompose", action="store_true", help="agent ablation")
             s.add_argument("--no-critic", action="store_true", help="agent ablation")
             s.add_argument("--max-retries", type=int, default=2, help="agent re-plan budget")
+            s.add_argument("--no-guardrails", action="store_true", help="ablation")
         s.set_defaults(handler=run_stage)
 
 
@@ -115,21 +116,24 @@ def _generate(
 ) -> None:
     from agentic_rag.evaluation.runner import run_generate
     from agentic_rag.factory import make_agent, make_baseline
-    from agentic_rag.pipelines.agent import AgentConfig, AgenticRAG
+    from agentic_rag.pipelines.agent import AgentConfig
 
     rerank = not args.no_rerank
-    config: dict[str, Any] = {"pipeline": args.pipeline}
-    rag: BaselineRAG | AgenticRAG
+    guardrails = settings.guardrails_enabled and not args.no_guardrails
+    config: dict[str, Any] = {"pipeline": args.pipeline, "guardrails": guardrails}
+    rag: AnswerPipeline
     if args.pipeline == "agent":
         agent_config = AgentConfig(
             decompose=not args.no_decompose,
             critic=not args.no_critic,
             max_retries=args.max_retries,
         )
-        rag = make_agent(settings, agent_config, rerank=rerank, mode=args.mode)
+        rag = make_agent(
+            settings, agent_config, rerank=rerank, mode=args.mode, guardrails=guardrails
+        )
         config |= {"agent": asdict(agent_config), "critic": settings.critic_model}
     else:
-        rag = make_baseline(settings, rerank=rerank, mode=args.mode)
+        rag = make_baseline(settings, rerank=rerank, mode=args.mode, guardrails=guardrails)
     config |= {
         "generator": settings.generator_model,
         "mode": args.mode,
@@ -140,9 +144,7 @@ def _generate(
         "n_items": len(items),
     }
     run_generate(items, rag.answer, run_dir, config)
-    rag.llm.unload()  # free RAM before the judge model loads
-    if isinstance(rag, AgenticRAG):
-        rag.critic_llm.unload()
+    rag.unload()  # free RAM before the judge model loads
 
 
 def _judge(settings: Settings, items: list["GoldenItem"], run_dir: Path) -> None:

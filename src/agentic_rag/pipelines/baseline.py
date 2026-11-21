@@ -28,6 +28,9 @@ class BaselineRAG:
             Message("user", answer_user_prompt(question, contexts)),
         ]
 
+    def unload(self) -> None:
+        self.llm.unload()
+
     def answer(self, question: str) -> Answer:
         t0 = time.perf_counter()
         retrieved = self.retriever.retrieve(question)

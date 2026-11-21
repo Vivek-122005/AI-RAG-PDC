@@ -38,6 +38,7 @@ class Chunk:
     section_path: tuple[str, ...]
     page_start: int | None
     page_end: int | None
+    flags: tuple[str, ...] = ()  # e.g. ("possible_injection",) set by ingest-time scanning
 
 
 def doc_id_for(source: str) -> str:

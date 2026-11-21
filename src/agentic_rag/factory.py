@@ -7,11 +7,16 @@ through constructors, which keeps modules testable and swappable.
 from qdrant_client import QdrantClient
 
 from agentic_rag.core.config import Settings
+from agentic_rag.guardrails import InputGuard, OutputGuard, is_safe_passage
 from agentic_rag.indexing.fastembed import FastEmbedEmbedder
 from agentic_rag.indexing.store import QdrantStore
 from agentic_rag.llm.ollama import OllamaLLM
 from agentic_rag.pipelines.agent import AgentConfig, AgenticRAG
+from agentic_rag.pipelines.agent.prompts import CRITIC_SYSTEM, DRAFT_SYSTEM, PLANNER_SYSTEM
+from agentic_rag.pipelines.answer import AnswerPipeline
 from agentic_rag.pipelines.baseline import BaselineRAG
+from agentic_rag.pipelines.guarded import GuardedPipeline
+from agentic_rag.pipelines.prompts import ANSWER_SYSTEM
 from agentic_rag.retrieval.rerank import FastEmbedReranker, NoopReranker, Reranker
 from agentic_rag.retrieval.retriever import RetrievalConfig, Retriever, SearchMode
 
@@ -45,9 +50,16 @@ def make_retriever(
     rerank: bool = True,
     mode: SearchMode = "hybrid",
     top_k: int | None = None,
+    guardrails: bool | None = None,
 ) -> Retriever:
     config = RetrievalConfig(mode, settings.retrieve_candidates, top_k or settings.retrieve_top_k)
-    return Retriever(store or make_store(settings), make_reranker(settings, rerank), config)
+    guarded = settings.guardrails_enabled if guardrails is None else guardrails
+    return Retriever(
+        store or make_store(settings),
+        make_reranker(settings, rerank),
+        config,
+        passage_filter=is_safe_passage if guarded else None,  # documents are untrusted
+    )
 
 
 def make_llm(settings: Settings, model: str | None = None) -> OllamaLLM:
@@ -59,10 +71,24 @@ def make_llm(settings: Settings, model: str | None = None) -> OllamaLLM:
     )
 
 
+def make_guarded(settings: Settings, pipeline: AnswerPipeline) -> GuardedPipeline:
+    return GuardedPipeline(
+        pipeline,
+        InputGuard(max_chars=settings.max_question_chars),
+        OutputGuard(system_prompts=(ANSWER_SYSTEM, DRAFT_SYSTEM, PLANNER_SYSTEM, CRITIC_SYSTEM)),
+    )
+
+
 def make_baseline(
-    settings: Settings, rerank: bool = True, mode: SearchMode = "hybrid"
-) -> BaselineRAG:
-    return BaselineRAG(make_retriever(settings, rerank=rerank, mode=mode), make_llm(settings))
+    settings: Settings,
+    rerank: bool = True,
+    mode: SearchMode = "hybrid",
+    guardrails: bool | None = None,
+) -> AnswerPipeline:
+    guarded = settings.guardrails_enabled if guardrails is None else guardrails
+    retriever = make_retriever(settings, rerank=rerank, mode=mode, guardrails=guarded)
+    rag = BaselineRAG(retriever, make_llm(settings))
+    return make_guarded(settings, rag) if guarded else rag
 
 
 def make_agent(
@@ -70,7 +96,8 @@ def make_agent(
     config: AgentConfig | None = None,
     rerank: bool = True,
     mode: SearchMode = "hybrid",
-) -> AgenticRAG:
+    guardrails: bool | None = None,
+) -> AnswerPipeline:
     generator = make_llm(settings)
     # Reuse one client when the critic is the same model, so Ollama keeps a single copy loaded.
     critic = (
@@ -79,5 +106,9 @@ def make_agent(
         else make_llm(settings, settings.critic_model)
     )
     config = config or AgentConfig(max_concurrency=settings.agent_max_concurrency)
-    retriever = make_retriever(settings, rerank=rerank, mode=mode, top_k=config.retrieve_depth)
-    return AgenticRAG(retriever, generator, critic, config)
+    guarded = settings.guardrails_enabled if guardrails is None else guardrails
+    retriever = make_retriever(
+        settings, rerank=rerank, mode=mode, top_k=config.retrieve_depth, guardrails=guarded
+    )
+    agent = AgenticRAG(retriever, generator, critic, config)
+    return make_guarded(settings, agent) if guarded else agent

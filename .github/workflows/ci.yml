@@ -16,7 +16,7 @@ jobs:
       - run: uv run ruff format --check .
       - run: uv run lint-imports
       - run: uv run mypy src tests
-      - run: uv run pytest tests/unit
+      - run: uv run pytest tests/unit tests/redteam
 
   integration:
     runs-on: ubuntu-latest

@@ -29,6 +29,10 @@ def ingest(args: argparse.Namespace, settings: Settings) -> int:
     report = ingest_path(args.path, make_store(settings), config, force=args.force)
     for source, status in report.results.items():
         print(f"  {status:9} {source}")
+    for source, index in report.flagged:
+        print(
+            f"  warning: {source} chunk {index} looks like a prompt injection (hidden from the LLM)"
+        )
     print(report.summary())
     return 1 if report.count("failed") else 0
 

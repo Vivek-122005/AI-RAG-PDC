@@ -2,7 +2,7 @@
 
 import re
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, Protocol
 
 from agentic_rag.domain.search import SearchHit
 from agentic_rag.llm.base import Usage
@@ -27,6 +27,16 @@ def cited_ids(text: str, n_contexts: int) -> list[int]:
     return sorted(i for i in ids if 1 <= i <= n_contexts)
 
 
+class AnswerPipeline(Protocol):
+    """Anything that turns a question into an `Answer` (baseline, agent, guarded wrapper)."""
+
+    def answer(self, question: str) -> "Answer": ...
+
+    def unload(self) -> None:
+        """Release model memory held by the pipeline's LLMs."""
+        ...
+
+
 @dataclass
 class Answer:
     question: str
@@ -36,10 +46,11 @@ class Answer:
     usage: Usage = field(default_factory=Usage)
     timings: dict[str, float] = field(default_factory=dict)
     trace: list[dict[str, Any]] = field(default_factory=list)  # agent steps, for debugging
+    blocked_by: str | None = None  # guardrail that stopped or replaced the answer
 
     @property
     def refused(self) -> bool:
-        return is_refusal(self.text)
+        return self.blocked_by is not None or is_refusal(self.text)
 
     @property
     def cited_ids(self) -> list[int]:

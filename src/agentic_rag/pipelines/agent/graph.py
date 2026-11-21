@@ -109,6 +109,11 @@ class AgenticRAG:
 
     # ── public API ────────────────────────────────────────────────────────────────
 
+    def unload(self) -> None:
+        self.llm.unload()
+        if self.critic_llm is not self.llm:
+            self.critic_llm.unload()
+
     def answer(self, question: str) -> Answer:
         t0 = time.perf_counter()
         start: AgentState = {"question": question, "iteration": 0, "usage": Usage(), "trace": []}

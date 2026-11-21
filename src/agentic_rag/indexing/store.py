@@ -72,6 +72,7 @@ class QdrantStore:
                     "section_path": list(c.section_path),
                     "page_start": c.page_start,
                     "page_end": c.page_end,
+                    "flags": list(c.flags),
                     "ingested_at": now,
                 },
             )
