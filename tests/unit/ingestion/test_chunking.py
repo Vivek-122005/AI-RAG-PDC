@@ -76,3 +76,20 @@ def test_embedding_text_has_context_header() -> None:
 
 def test_approx_tokens_reasonable() -> None:
     assert 8 <= approx_tokens("Retrieval-augmented generation reduces hallucination.") <= 12
+
+
+def test_short_document_is_kept_even_below_min_tokens() -> None:
+    doc = Document(
+        "d", "note.md", "Note", "h", "md", [Block("Codename is Bluebird.", None, ("Note",))]
+    )
+    chunks = chunk_document(doc, ChunkingConfig(min_tokens=20))
+    assert [c.text for c in chunks] == ["Codename is Bluebird."]
+
+
+def test_small_fragments_are_still_dropped_from_longer_documents() -> None:
+    body = " ".join(["Retrieval augmented generation grounds answers in documents."] * 8)
+    doc = Document(
+        "d", "paper.md", "Paper", "h", "md",
+        [Block(body, None, ("Intro",)), Block("Figure 1", None, ("Caption",))],
+    )  # fmt: skip
+    assert all("Figure 1" not in c.text for c in chunk_document(doc, ChunkingConfig(min_tokens=5)))
