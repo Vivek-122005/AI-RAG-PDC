@@ -93,6 +93,27 @@ TRACING=console uv run rag ask "..."            # or print spans to the terminal
 Each eval `report.md` has a **failure taxonomy** (which stage broke, per item) and a
 one-line trace for every failure.
 
+## Serving (Phase 6)
+
+```bash
+make api                                        # http://localhost:8000 (demo UI at /, docs at /docs)
+```
+
+With `API_KEYS` empty in `dev`, the API is open as tenant `local`. Otherwise:
+
+```bash
+export API_KEYS="alice-key:alice"
+curl -s localhost:8000/v1/query -H "Authorization: Bearer alice-key" \
+  -H "Content-Type: application/json" -d '{"question": "What three actions can CRAG trigger?"}'
+curl -N localhost:8000/v1/query/stream -H "Authorization: Bearer alice-key" \
+  -H "Content-Type: application/json" -d '{"question": "...", "pipeline": "agent"}'   # SSE
+curl -s localhost:8000/v1/documents -H "Authorization: Bearer alice-key" -F file=@notes.md
+```
+
+Uploads are private to the uploading tenant; the indexed corpus is shared by all.
+Answers are cached per tenant, requests are rate-limited per tenant, and only one
+answer is generated at a time (`API_MAX_CONCURRENT_JOBS`).
+
 ## Timeline
 
 - **2026-11-11** — Repository created; project scoped and proposal written.
@@ -106,5 +127,5 @@ one-line trace for every failure.
 - [x] Phase 3 — Agentic orchestration
 - [x] Phase 4 — Guardrails
 - [x] Phase 5 — Observability
-- [ ] Phase 6 — Serving
+- [x] Phase 6 — Serving
 - [ ] Phase 7 — CI/CD & deployment

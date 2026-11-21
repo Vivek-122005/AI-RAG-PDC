@@ -7,7 +7,7 @@ from typing import Any
 from qdrant_client import QdrantClient, models
 
 from agentic_rag.core.telemetry import tracer
-from agentic_rag.domain.documents import Chunk, Document
+from agentic_rag.domain.documents import PUBLIC_TENANT, Chunk, Document
 from agentic_rag.domain.search import SearchHit
 from agentic_rag.indexing.embedder import Embedder, SparseVec
 
@@ -40,7 +40,7 @@ class QdrantStore:
             # BM25 needs IDF computed by Qdrant at query time across the collection.
             sparse_vectors_config={SPARSE: models.SparseVectorParams(modifier=models.Modifier.IDF)},
         )
-        for key in ("doc_id", "source"):
+        for key in ("doc_id", "source", "tenant"):
             self.client.create_payload_index(
                 self.collection, field_name=key, field_schema=models.PayloadSchemaType.KEYWORD
             )
@@ -62,6 +62,7 @@ class QdrantStore:
                 vector={DENSE: d, SPARSE: _sparse(s)},
                 payload={
                     "doc_id": doc.doc_id,
+                    "tenant": doc.tenant,
                     "source": doc.source,
                     "title": doc.title,
                     "file_type": doc.file_type,
@@ -100,21 +101,29 @@ class QdrantStore:
         value = points[0].payload.get("content_hash")
         return str(value) if value is not None else None
 
-    def list_documents(self) -> dict[str, dict[str, Any]]:
+    def list_documents(self, tenants: Sequence[str] | None = None) -> dict[str, dict[str, Any]]:
         docs: dict[str, dict[str, Any]] = {}
         offset = None
         while True:
             points, offset = self.client.scroll(
                 self.collection,
+                scroll_filter=_tenant_filter(tenants),
                 limit=256,
                 offset=offset,
-                with_payload=["doc_id", "source", "title", "chunk_count", "ingested_at"],
+                with_payload=["doc_id", "tenant", "source", "title", "chunk_count", "ingested_at"],
             )
             for p in points:
                 pl = p.payload or {}
                 docs.setdefault(str(pl["doc_id"]), pl)
             if offset is None:
                 return docs
+
+    def get_document(self, doc_id: str) -> dict[str, Any] | None:
+        """Payload of one chunk of the document (title, source, tenant, ...), or None."""
+        points, _ = self.client.scroll(
+            self.collection, scroll_filter=_eq("doc_id", doc_id), limit=1, with_payload=True
+        )
+        return dict(points[0].payload or {}) if points else None
 
     def count(self) -> int:
         return self.client.count(self.collection, exact=True).count
@@ -126,13 +135,15 @@ class QdrantStore:
         mode: str = "hybrid",
         prefetch_limit: int = 30,
         doc_ids: Sequence[str] | None = None,
+        tenants: Sequence[str] | None = None,
     ) -> list[SearchHit]:
-        """mode: 'hybrid' (dense + BM25 fused with RRF), 'dense' or 'sparse'."""
+        """mode: 'hybrid' (dense + BM25 fused with RRF), 'dense' or 'sparse'.
+        `tenants` restricts results to documents those tenants own (None: no restriction)."""
         with tracer().start_as_current_span("vectorstore.search") as span:
             span.set_attributes(
                 {"db.system": "qdrant", "rag.search.mode": mode, "rag.search.limit": limit}
             )
-            hits = self._search(query, limit, mode, prefetch_limit, doc_ids)
+            hits = self._search(query, limit, mode, prefetch_limit, doc_ids, tenants)
             span.set_attribute("rag.search.hits", len(hits))
             return hits
 
@@ -143,15 +154,17 @@ class QdrantStore:
         mode: str,
         prefetch_limit: int,
         doc_ids: Sequence[str] | None,
+        tenants: Sequence[str] | None,
     ) -> list[SearchHit]:
         dense, sparse = self.embedder.embed_query(query)
-        flt = (
-            models.Filter(
-                must=[models.FieldCondition(key="doc_id", match=models.MatchAny(any=list(doc_ids)))]
+        must: list[models.Condition] = []
+        if doc_ids:
+            must.append(
+                models.FieldCondition(key="doc_id", match=models.MatchAny(any=list(doc_ids)))
             )
-            if doc_ids
-            else None
-        )
+        if (scope := _tenant_filter(tenants)) is not None:
+            must.append(scope)
+        flt = models.Filter(must=must) if must else None
         if mode == "dense":
             res = self.client.query_points(
                 self.collection, query=dense, using=DENSE, limit=limit, query_filter=flt
@@ -181,6 +194,19 @@ def _eq(key: str, value: str) -> models.Filter:
     return models.Filter(
         must=[models.FieldCondition(key=key, match=models.MatchValue(value=value))]
     )
+
+
+def _tenant_filter(tenants: Sequence[str] | None) -> models.Filter | None:
+    """Documents owned by one of `tenants`. Chunks indexed before tenancy existed have no
+    tenant field and count as public."""
+    if tenants is None:
+        return None
+    conditions: list[models.Condition] = [
+        models.FieldCondition(key="tenant", match=models.MatchAny(any=list(tenants)))
+    ]
+    if PUBLIC_TENANT in tenants:
+        conditions.append(models.IsEmptyCondition(is_empty=models.PayloadField(key="tenant")))
+    return models.Filter(should=conditions)
 
 
 def _to_hit(p: models.ScoredPoint) -> SearchHit:

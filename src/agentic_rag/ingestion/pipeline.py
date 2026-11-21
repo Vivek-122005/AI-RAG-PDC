@@ -7,7 +7,7 @@ from typing import Literal
 
 import structlog
 
-from agentic_rag.domain.documents import Chunk, doc_id_for, file_hash
+from agentic_rag.domain.documents import PUBLIC_TENANT, Chunk, doc_id_for, file_hash
 from agentic_rag.guardrails.injection import is_safe_passage
 from agentic_rag.indexing.store import QdrantStore
 from agentic_rag.ingestion.chunking import ChunkingConfig, chunk_document, embedding_text
@@ -60,18 +60,22 @@ def source_for(path: Path, root: Path) -> str:
 
 
 def ingest_path(
-    root: Path, store: QdrantStore, cfg: ChunkingConfig | None = None, force: bool = False
+    root: Path,
+    store: QdrantStore,
+    cfg: ChunkingConfig | None = None,
+    force: bool = False,
+    tenant: str = PUBLIC_TENANT,
 ) -> IngestReport:
     store.ensure_collection()
     report = IngestReport()
     for path in iter_files(root):
         source = source_for(path, root)
         try:
-            existing = store.get_content_hash(doc_id_for(source))
+            existing = store.get_content_hash(doc_id_for(source, tenant))
             if not force and existing == file_hash(path):
                 report.results[source] = "unchanged"
                 continue
-            doc = load_document(path, source=source)
+            doc = load_document(path, source=source, tenant=tenant)
             chunks = [_scan(c) for c in chunk_document(doc, cfg)]
             if not chunks:
                 report.results[source] = "empty"

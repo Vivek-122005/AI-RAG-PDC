@@ -3,6 +3,7 @@
 from functools import lru_cache
 from typing import Literal
 
+from pydantic import SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -41,6 +42,18 @@ class Settings(BaseSettings):
     tracing: Literal["off", "console", "otlp"] = "off"
     otlp_endpoint: str = "http://localhost:4318"
     service_name: str = "agentic-rag"
+
+    # HTTP API. API_KEYS="key1:tenant1,key2:tenant2"; each key reads its tenant's uploads
+    # plus the shared public corpus. With no keys, dev runs open as tenant "local"; prod
+    # refuses to start.
+    api_keys: SecretStr = SecretStr("")
+    api_rate_limit_per_minute: int = 30
+    api_max_concurrent_jobs: int = 1  # queries + ingest jobs running at once (1 on a laptop)
+    upload_dir: str = "data/uploads"
+    max_upload_mb: int = 20
+    answer_cache_size: int = 256
+    answer_cache_ttl_s: int = 3600
+    cors_origins: str = ""  # comma-separated; empty disables CORS
 
     # Guardrails (rule-based: no extra models)
     guardrails_enabled: bool = True

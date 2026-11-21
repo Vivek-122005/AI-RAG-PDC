@@ -1,6 +1,7 @@
 """The result type every answer pipeline returns."""
 
 import re
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any, Protocol
 
@@ -27,10 +28,15 @@ def cited_ids(text: str, n_contexts: int) -> list[int]:
     return sorted(i for i in ids if 1 <= i <= n_contexts)
 
 
+# Called with each pipeline step as it finishes (the same dicts that end up in Answer.trace),
+# so callers such as the streaming API can report progress before the answer is ready.
+StepCallback = Callable[[dict[str, Any]], None]
+
+
 class AnswerPipeline(Protocol):
     """Anything that turns a question into an `Answer` (baseline, agent, guarded wrapper)."""
 
-    def answer(self, question: str) -> "Answer": ...
+    def answer(self, question: str, on_step: StepCallback | None = None) -> "Answer": ...
 
     def unload(self) -> None:
         """Release model memory held by the pipeline's LLMs."""

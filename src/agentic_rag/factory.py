@@ -10,6 +10,7 @@ from agentic_rag.core.config import Settings
 from agentic_rag.guardrails import InputGuard, OutputGuard, is_safe_passage
 from agentic_rag.indexing.fastembed import FastEmbedEmbedder
 from agentic_rag.indexing.store import QdrantStore
+from agentic_rag.ingestion.chunking import ChunkingConfig
 from agentic_rag.llm.ollama import OllamaLLM
 from agentic_rag.pipelines.agent import AgentConfig, AgenticRAG
 from agentic_rag.pipelines.agent.prompts import CRITIC_SYSTEM, DRAFT_SYSTEM, PLANNER_SYSTEM
@@ -19,6 +20,14 @@ from agentic_rag.pipelines.guarded import GuardedPipeline
 from agentic_rag.pipelines.prompts import ANSWER_SYSTEM
 from agentic_rag.retrieval.rerank import FastEmbedReranker, NoopReranker, Reranker
 from agentic_rag.retrieval.retriever import RetrievalConfig, Retriever, SearchMode
+
+
+def make_chunking_config(settings: Settings) -> ChunkingConfig:
+    return ChunkingConfig(
+        target_tokens=settings.chunk_target_tokens,
+        max_tokens=settings.chunk_max_tokens,
+        overlap_tokens=settings.chunk_overlap_tokens,
+    )
 
 
 def make_qdrant_client(settings: Settings) -> QdrantClient:
@@ -51,12 +60,13 @@ def make_retriever(
     mode: SearchMode = "hybrid",
     top_k: int | None = None,
     guardrails: bool | None = None,
+    reranker: Reranker | None = None,
 ) -> Retriever:
     config = RetrievalConfig(mode, settings.retrieve_candidates, top_k or settings.retrieve_top_k)
     guarded = settings.guardrails_enabled if guardrails is None else guardrails
     return Retriever(
         store or make_store(settings),
-        make_reranker(settings, rerank),
+        reranker or make_reranker(settings, rerank),
         config,
         passage_filter=is_safe_passage if guarded else None,  # documents are untrusted
     )

@@ -13,7 +13,7 @@ from dataclasses import replace
 
 from agentic_rag.core.telemetry import tracer
 from agentic_rag.guardrails import InputGuard, OutputGuard
-from agentic_rag.pipelines.answer import Answer, AnswerPipeline
+from agentic_rag.pipelines.answer import Answer, AnswerPipeline, StepCallback
 from agentic_rag.pipelines.prompts import REFUSAL
 
 BLOCKED_MESSAGES = {
@@ -37,9 +37,9 @@ class GuardedPipeline:
     def unload(self) -> None:
         self.inner.unload()
 
-    def answer(self, question: str) -> Answer:
+    def answer(self, question: str, on_step: StepCallback | None = None) -> Answer:
         with tracer().start_as_current_span("rag.answer") as span:
-            ans = self._answer(question)
+            ans = self._answer(question, on_step or (lambda _: None))
             span.set_attributes(
                 {
                     "rag.pipeline": type(self.inner).__name__,
@@ -50,9 +50,10 @@ class GuardedPipeline:
             )
             return ans
 
-    def _answer(self, question: str) -> Answer:
+    def _answer(self, question: str, emit: StepCallback) -> Answer:
         t0 = time.perf_counter()
         decision = self.input_guard.check(question)
+        emit({"node": "input_guard", "allowed": decision.allowed, "blocked": decision.reason})
         if not decision.allowed:
             reason = decision.reason or "blocked"
             step = {
@@ -70,8 +71,9 @@ class GuardedPipeline:
                 blocked_by=f"input:{reason}",
             )
 
-        ans = self.inner.answer(decision.question)
+        ans = self.inner.answer(decision.question, emit)
         out = self.output_guard.check(ans.text, len(ans.contexts), refused=ans.refused)
+        emit({"node": "output_guard", "refused": out.reason})
         trace = [
             {"node": "input_guard", "redacted": decision.redacted, "seconds": 0.0},
             *ans.trace,

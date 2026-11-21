@@ -57,7 +57,7 @@ forbids business logic (pipelines, retrieval, evaluation) from importing concret
 | `pipelines/agent/` | LangGraph agent: planner, per-query retrieval, drafter, critic, re-plan. Decision rules are pure functions | `graph.py`, `policy.py`, `evidence.py`, `schemas.py`, `prompts.py` |
 | `evaluation/` | Golden datasets, synthesis, LLM judge, metrics, reports, ablations | `runner.py`, `metrics.py`, `report.py` |
 | `factory.py` | Builds concrete objects from `Settings`. The only place that picks implementations | |
-| `api/` | FastAPI app (health now, streaming query endpoints in Phase 6) | `main.py` |
+| `api/` | FastAPI app: auth and tenancy, rate limit, answer cache, JSON and SSE query, uploads, health, demo UI | `app.py`, `services.py`, `security.py`, `routes/` |
 | `cli/` | `rag` command; one module per command group, handlers stay thin | `main.py`, `index.py`, `query.py`, `evaluate.py` |
 
 ## Request flows
@@ -91,6 +91,20 @@ cli.query → factory.make_baseline → pipelines.BaselineRAG.answer
               ├─ retrieval.Retriever   Qdrant hybrid search (RRF) → reranker → top-k
               └─ llm.LLM.generate      evidence-only prompt with [n] citations → Answer
 ```
+
+**Answer over HTTP** (`POST /v1/query`, `POST /v1/query/stream`)
+```
+observe middleware    server span, X-Trace-Id header
+→ auth                API key → tenant (Bearer or X-API-Key); 401 otherwise
+→ rate limit          token bucket per tenant; 429 + Retry-After
+→ answer cache        LRU+TTL keyed by (tenant, pipeline, normalised question)
+→ CapacityLimiter     heavy work on a worker thread, API_MAX_CONCURRENT_JOBS at a time
+→ Services.pipeline   guarded agent|baseline over a Retriever scoped to {public, tenant}
+→ QueryResponse       answer, citations[n], usage, timings, trace_id
+```
+The stream endpoint sends `status` events as each pipeline step finishes, then `citations`
+and `final` (or `error`). Draft tokens are not streamed: the critic may still reject a
+draft, and text that is then withdrawn would defeat self-correction.
 
 **Evaluate** (`rag eval all --run <name>`)
 ```
@@ -148,6 +162,17 @@ reject, wrong answer, unfaithful, hallucinated answer, guardrail block. Each fai
 listed with a one-line trace (`plan → retrieve x3 → draft(refused) → critique(retry) → …`).
 That answers "which node went wrong" offline, with no dashboard service to run.
 
+## Serving and tenancy
+
+| Concern | How |
+|---|---|
+| Tenancy | Every chunk carries a `tenant` payload (indexed). The CLI corpus is `public`; uploads belong to the caller's tenant. Search filters on `{public, tenant}`; chunks indexed before tenancy (no field) count as public |
+| Auth | `API_KEYS="key:tenant,..."`; keys compared in constant time. Empty keys in `dev` = open access as tenant `local`; in `prod` the app refuses to start |
+| Uploads | `.pdf/.md/.txt/.html`, size-capped, filename sanitised, stored under `UPLOAD_DIR/<tenant>/`, indexed by a background job (`GET /v1/documents/jobs/{id}`) |
+| Deletes | owner only (404 for others' documents, 403 for public ones) |
+| Back-pressure | one heavy job at a time by default; a laptop serves answers one by one while the event loop keeps accepting and streaming |
+| Failures | model down → 503; index or Ollama down → `/health` says `degraded` |
+
 ## Conventions
 
 - **Depend on interfaces.** Cross-layer collaborators are `typing.Protocol`s (`LLM`, `Embedder`,
@@ -181,7 +206,7 @@ That answers "which node went wrong" offline, with no dashboard service to run.
 ├── docs/                   PLAN.md (roadmap), ARCHITECTURE.md (this file)
 ├── scripts/                one-off developer utilities (sample corpus download)
 ├── corpus/                 local documents (git-ignored)
-├── compose.yaml            local infrastructure (Qdrant)
+├── compose.yaml            optional services (Qdrant server, Jaeger)
 ├── Makefile                developer commands (`make help`-style targets)
 └── .github/workflows/      CI: lint, import contracts, types, unit + integration tests
 ```

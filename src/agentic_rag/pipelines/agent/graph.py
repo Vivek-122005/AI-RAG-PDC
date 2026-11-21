@@ -23,6 +23,7 @@ from functools import wraps
 from typing import Annotated, Any, ParamSpec, TypedDict, cast
 
 import structlog
+from langchain_core.runnables import RunnableConfig
 from langgraph.graph import END, START, StateGraph
 from langgraph.graph.state import CompiledStateGraph
 from langgraph.types import Send
@@ -41,7 +42,7 @@ from agentic_rag.pipelines.agent.prompts import (
     planner_user_prompt,
 )
 from agentic_rag.pipelines.agent.schemas import Critique, Plan
-from agentic_rag.pipelines.answer import Answer, cited_ids, is_refusal
+from agentic_rag.pipelines.answer import Answer, StepCallback, cited_ids, is_refusal
 from agentic_rag.pipelines.prompts import REFUSAL, answer_user_prompt
 from agentic_rag.retrieval.retriever import EvidenceRetriever
 
@@ -136,9 +137,9 @@ class AgenticRAG:
         if self.critic_llm is not self.llm:
             self.critic_llm.unload()
 
-    def answer(self, question: str) -> Answer:
+    def answer(self, question: str, on_step: StepCallback | None = None) -> Answer:
         with tracer().start_as_current_span("agent.run") as span:
-            ans = self._run(question)
+            ans = self._run(question, on_step)
             span.set_attributes(
                 {
                     "rag.agent.refused": ans.refused,
@@ -150,13 +151,20 @@ class AgenticRAG:
             )
             return ans
 
-    def _run(self, question: str) -> Answer:
+    def _run(self, question: str, on_step: StepCallback | None) -> Answer:
         t0 = time.perf_counter()
         start: AgentState = {"question": question, "iteration": 0, "usage": Usage(), "trace": []}
-        state = cast(
-            AgentState,
-            self.graph.invoke(start, config={"max_concurrency": self.config.max_concurrency}),
-        )
+        state = start
+        config: RunnableConfig = {"max_concurrency": self.config.max_concurrency}
+        # "updates" yields each node's output as it finishes (progress for on_step);
+        # "values" yields the full state after each step (the last one is the result).
+        for mode, chunk in self.graph.stream(start, config, stream_mode=["updates", "values"]):
+            if mode == "values":
+                state = cast(AgentState, chunk)
+            elif on_step is not None:
+                for update in cast(dict[str, AgentState | None], chunk).values():
+                    for step in (update or {}).get("trace", []):
+                        on_step(step)
         text = state["draft"] if state.get("decision") == "accept" else REFUSAL
         timings: dict[str, float] = defaultdict(float)
         retrieve_rounds: dict[int, float] = defaultdict(float)

@@ -1,0 +1,141 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Agentic RAG</title>
+<style>
+  :root { --bg:#fafaf9; --fg:#1c1917; --muted:#78716c; --line:#e7e5e4; --accent:#0f766e; --card:#fff; }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg:#1c1917; --fg:#f5f5f4; --muted:#a8a29e; --line:#44403c; --accent:#5eead4; --card:#292524; }
+  }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--fg); font:16px/1.5 system-ui, sans-serif; }
+  main { max-width: 760px; margin: 0 auto; padding: 32px 16px; }
+  h1 { font-size: 1.4rem; margin: 0 0 4px; }
+  p.sub { color: var(--muted); margin: 0 0 24px; }
+  form { display: grid; gap: 8px; }
+  textarea, input, select, button { font: inherit; padding: 10px 12px; border: 1px solid var(--line);
+    border-radius: 8px; background: var(--card); color: var(--fg); }
+  textarea { min-height: 88px; resize: vertical; }
+  .row { display: flex; gap: 8px; flex-wrap: wrap; }
+  .row > * { flex: 1 1 160px; }
+  button { background: var(--accent); color: var(--bg); border: none; font-weight: 600; cursor: pointer; }
+  button:disabled { opacity: .5; cursor: wait; }
+  section { margin-top: 24px; }
+  #steps { color: var(--muted); font-size: .9rem; padding-left: 18px; }
+  #answer { background: var(--card); border: 1px solid var(--line); border-radius: 8px; padding: 16px;
+    white-space: pre-wrap; }
+  .cite { border-top: 1px solid var(--line); padding: 10px 0; font-size: .9rem; }
+  .cite b { color: var(--accent); }
+  .cite small { color: var(--muted); display: block; }
+  .meta { color: var(--muted); font-size: .85rem; margin-top: 8px; }
+  [hidden] { display: none; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Agentic RAG</h1>
+  <p class="sub">Answers only from your documents, with citations, and an honest refusal when they don't say.</p>
+
+  <form id="ask">
+    <textarea id="question" required placeholder="e.g. Which model initializes CRAG's retrieval evaluator?"></textarea>
+    <div class="row">
+      <input id="key" type="password" placeholder="API key (blank if the server has none)" autocomplete="off">
+      <select id="pipeline">
+        <option value="agent">Agent (plans, critiques, retries)</option>
+        <option value="baseline">Baseline (one pass)</option>
+      </select>
+      <button id="go" type="submit">Ask</button>
+    </div>
+  </form>
+
+  <section id="progress" hidden><ol id="steps"></ol></section>
+  <section id="result" hidden>
+    <div id="answer"></div>
+    <div id="meta" class="meta"></div>
+    <div id="citations"></div>
+  </section>
+</main>
+<script>
+const $ = (id) => document.getElementById(id);
+try { $("key").value = localStorage.getItem("rag-key") || ""; } catch {}
+
+function describe(s) {
+  const parts = [s.node];
+  if (s.iteration) parts.push(`round ${s.iteration + 1}`);
+  if (s.queries) parts.push(s.queries.join(" | "));
+  if (s.decision) parts.push(`→ ${s.decision}`);
+  if (s.strategy) parts.push(s.strategy);
+  if (s.refused === true) parts.push("(refused)");
+  if (s.blocked) parts.push(`blocked: ${s.blocked}`);
+  return parts.join(" · ");
+}
+
+function show(final) {
+  $("answer").textContent = final.answer;
+  const t = final.timings.total_s ? `${final.timings.total_s.toFixed(1)}s` : "";
+  $("meta").textContent = [final.cached ? "cached" : t, final.trace_id && `trace ${final.trace_id}`]
+    .filter(Boolean).join(" · ");
+  const box = $("citations");
+  box.replaceChildren();
+  for (const c of final.citations.filter((c) => c.cited)) {
+    const div = document.createElement("div");
+    div.className = "cite";
+    const head = document.createElement("b");
+    head.textContent = `[${c.id}] ${c.title}`;
+    const where = document.createElement("small");
+    where.textContent = [c.section, c.pages && `p. ${c.pages}`, c.source].filter(Boolean).join(" · ");
+    const text = document.createElement("div");
+    text.textContent = c.snippet;
+    div.append(head, where, text);
+    box.append(div);
+  }
+  $("result").hidden = false;
+}
+
+$("ask").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const key = $("key").value.trim();
+  try { localStorage.setItem("rag-key", key); } catch {}
+  $("go").disabled = true;
+  $("steps").replaceChildren();
+  $("progress").hidden = false;
+  $("result").hidden = true;
+  try {
+    const res = await fetch("/v1/query/stream", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...(key && { Authorization: `Bearer ${key}` }) },
+      body: JSON.stringify({ question: $("question").value, pipeline: $("pipeline").value }),
+    });
+    if (!res.ok) throw new Error(`${res.status} ${(await res.json()).detail || res.statusText}`);
+    const reader = res.body.pipeThrough(new TextDecoderStream()).getReader();
+    let buffer = "";
+    for (;;) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      buffer += value;
+      let cut;
+      while ((cut = buffer.indexOf("\n\n")) >= 0) {
+        const block = buffer.slice(0, cut);
+        buffer = buffer.slice(cut + 2);
+        const event = /^event: (.*)$/m.exec(block)?.[1];
+        const data = JSON.parse(/^data: (.*)$/m.exec(block)?.[1] || "{}");
+        if (event === "status") {
+          const li = document.createElement("li");
+          li.textContent = describe(data);
+          $("steps").append(li);
+        } else if (event === "final") show(data);
+        else if (event === "error") throw new Error(data.detail);
+      }
+    }
+  } catch (err) {
+    $("answer").textContent = `Error: ${err.message}`;
+    $("result").hidden = false;
+  } finally {
+    $("go").disabled = false;
+  }
+});
+</script>
+</body>
+</html>

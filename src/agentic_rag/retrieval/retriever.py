@@ -1,6 +1,6 @@
 """Two-stage retrieval: broad hybrid recall from the vector store, then precise reranking."""
 
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 from typing import Literal, Protocol
 
@@ -38,6 +38,7 @@ class Retriever:
         reranker: Reranker,
         config: RetrievalConfig | None = None,
         passage_filter: Callable[[str], bool] | None = None,
+        tenants: Sequence[str] | None = None,
     ) -> None:
         self.store = store
         self.reranker = reranker
@@ -46,11 +47,18 @@ class Retriever:
         # instructions) never reach the LLM. Applied at query time, so it also covers
         # chunks indexed before the filter existed.
         self.passage_filter = passage_filter
+        self.tenants = tenants  # only search documents these tenants own (None: all)
+
+    def scoped(self, tenants: Sequence[str]) -> "Retriever":
+        """The same retriever (shared models and store), restricted to `tenants`' documents."""
+        return Retriever(self.store, self.reranker, self.config, self.passage_filter, tenants)
 
     def retrieve(self, query: str) -> RetrievalResult:
         cfg = self.config
         with tracer().start_as_current_span("retrieval.retrieve") as span:
-            candidates = self.store.search(query, limit=cfg.candidates, mode=cfg.mode)
+            candidates = self.store.search(
+                query, limit=cfg.candidates, mode=cfg.mode, tenants=self.tenants
+            )
             found = len(candidates)
             if self.passage_filter is not None:
                 candidates = [h for h in candidates if self.passage_filter(h.text)]
