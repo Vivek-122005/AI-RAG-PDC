@@ -114,6 +114,19 @@ Uploads are private to the uploading tenant; the indexed corpus is shared by all
 Answers are cached per tenant, requests are rate-limited per tenant, and only one
 answer is generated at a time (`API_MAX_CONCURRENT_JOBS`).
 
+## Deploy & CI/CD (Phase 7)
+
+```bash
+make image                                   # production image: multi-stage, non-root, models baked in
+API_KEYS="demo-key:demo" make serve          # Qdrant + API containers on :8000 (Ollama on the host)
+make loadtest KEY=demo-key                   # latency percentiles, status mix, cache hits
+make eval-gate                               # the CI quality gate: retrieval vs floors, no LLM
+```
+
+CI runs lint, types, unit + red-team tests, integration tests, and the retrieval eval
+gate on every change; a second workflow builds the image, smoke-tests it and pushes it to
+GHCR from `main`. See [docs/DEPLOY.md](docs/DEPLOY.md).
+
 ## Timeline
 
 - **2026-11-11** — Repository created; project scoped and proposal written.
@@ -128,4 +141,4 @@ answer is generated at a time (`API_MAX_CONCURRENT_JOBS`).
 - [x] Phase 4 — Guardrails
 - [x] Phase 5 — Observability
 - [x] Phase 6 — Serving
-- [ ] Phase 7 — CI/CD & deployment
+- [x] Phase 7 — CI/CD & deployment

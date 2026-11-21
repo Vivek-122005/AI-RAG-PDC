@@ -203,12 +203,13 @@ That answers "which node went wrong" offline, with no dashboard service to run.
 ├── eval/
 │   ├── datasets/           golden sets (JSONL, committed)
 │   └── results/            run outputs (git-ignored)
-├── docs/                   PLAN.md (roadmap), ARCHITECTURE.md (this file)
-├── scripts/                one-off developer utilities (sample corpus download)
+├── docs/                   PLAN.md (roadmap), ARCHITECTURE.md (this file), DEPLOY.md
+├── scripts/                developer utilities (sample corpus download, load test)
 ├── corpus/                 local documents (git-ignored)
-├── compose.yaml            optional services (Qdrant server, Jaeger)
+├── Dockerfile              production image (multi-stage, non-root, models baked in)
+├── compose.yaml            optional services (Qdrant server, API container, Jaeger)
 ├── Makefile                developer commands (`make help`-style targets)
-└── .github/workflows/      CI: lint, import contracts, types, unit + integration tests
+└── .github/workflows/      ci.yml (checks, integration, retrieval eval gate), image.yml (build, smoke test, GHCR)
 ```
 
 ## Adding something new
