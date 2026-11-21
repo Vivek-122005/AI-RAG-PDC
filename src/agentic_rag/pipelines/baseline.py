@@ -6,6 +6,7 @@ This is the control group the agentic pipeline must beat.
 import time
 from collections.abc import Sequence
 
+from agentic_rag.core.telemetry import traced
 from agentic_rag.domain.search import SearchHit
 from agentic_rag.llm.base import LLM, Message
 from agentic_rag.pipelines.answer import Answer
@@ -31,6 +32,7 @@ class BaselineRAG:
     def unload(self) -> None:
         self.llm.unload()
 
+    @traced("baseline.answer")
     def answer(self, question: str) -> Answer:
         t0 = time.perf_counter()
         retrieved = self.retriever.retrieve(question)

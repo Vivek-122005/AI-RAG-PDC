@@ -12,5 +12,18 @@ services:
       timeout: 3s
       retries: 10
 
+  # Optional trace viewer: `docker compose --profile observability up jaeger`, then set
+  # TRACING=otlp and open http://localhost:16686. Not started by `make up`.
+  jaeger:
+    image: jaegertracing/jaeger:2.22.0
+    profiles: ["observability"]
+    ports:
+      - "16686:16686"   # UI
+      - "4318:4318"     # OTLP over HTTP (what the app exports to)
+    deploy:
+      resources:
+        limits:
+          memory: 256m
+
 volumes:
   qdrant_data:

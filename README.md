@@ -82,6 +82,17 @@ make test                                     # includes the red-team suite (tes
 uv run rag eval all --run x --pipeline agent --no-guardrails   # measure their cost
 ```
 
+## Observability (Phase 5)
+
+```bash
+make traces                                     # optional: Jaeger UI on http://localhost:16686
+TRACING=otlp uv run rag ask "What three actions can CRAG trigger?"
+TRACING=console uv run rag ask "..."            # or print spans to the terminal
+```
+
+Each eval `report.md` has a **failure taxonomy** (which stage broke, per item) and a
+one-line trace for every failure.
+
 ## Timeline
 
 - **2026-11-11** — Repository created; project scoped and proposal written.
@@ -94,6 +105,6 @@ uv run rag eval all --run x --pipeline agent --no-guardrails   # measure their c
 - [x] Phase 2 — Baseline RAG + evaluation
 - [x] Phase 3 — Agentic orchestration
 - [x] Phase 4 — Guardrails
-- [ ] Phase 5 — Observability
+- [x] Phase 5 — Observability
 - [ ] Phase 6 — Serving
 - [ ] Phase 7 — CI/CD & deployment

@@ -14,6 +14,7 @@ from qdrant_client import AsyncQdrantClient
 from agentic_rag import __version__
 from agentic_rag.core.config import Settings, get_settings
 from agentic_rag.core.logging import configure_logging
+from agentic_rag.core.telemetry import configure_from_settings
 
 log = structlog.get_logger()
 
@@ -63,6 +64,7 @@ def missing_models(settings: Settings, installed: set[str]) -> list[str]:
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     settings = get_settings()
     configure_logging(settings)
+    configure_from_settings(settings)
     log.info("startup", env=settings.app_env, version=__version__)
     yield
 

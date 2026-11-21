@@ -11,8 +11,10 @@ from collections.abc import Iterator, Sequence
 from typing import Any
 
 import httpx
+from opentelemetry.trace import Status, StatusCode
 from pydantic import ValidationError
 
+from agentic_rag.core.telemetry import tracer
 from agentic_rag.llm.base import LLMError, LLMResult, Message, T, Usage
 
 
@@ -61,22 +63,37 @@ class OllamaLLM:
         return payload
 
     def _chat(self, payload: dict[str, Any]) -> LLMResult:
-        start = time.perf_counter()
-        try:
-            r = self._client.post("/api/chat", json=payload)
-            r.raise_for_status()
-        except httpx.HTTPError as exc:
-            raise LLMError(f"Ollama request failed ({self.model}): {exc}") from exc
-        data = r.json()
-        return LLMResult(
-            text=data.get("message", {}).get("content", ""),
-            model=self.model,
-            usage=Usage(
+        with tracer().start_as_current_span(f"chat {self.model}") as span:
+            span.set_attributes(
+                {
+                    "gen_ai.system": "ollama",
+                    "gen_ai.operation.name": "chat",
+                    "gen_ai.request.model": self.model,
+                    "gen_ai.request.max_tokens": payload["options"]["num_predict"],
+                    "gen_ai.request.temperature": payload["options"]["temperature"],
+                    "rag.llm.structured_output": "format" in payload,
+                }
+            )
+            start = time.perf_counter()
+            try:
+                r = self._client.post("/api/chat", json=payload)
+                r.raise_for_status()
+            except httpx.HTTPError as exc:
+                span.set_status(Status(StatusCode.ERROR, str(exc)))
+                raise LLMError(f"Ollama request failed ({self.model}): {exc}") from exc
+            data = r.json()
+            usage = Usage(
                 prompt_tokens=data.get("prompt_eval_count", 0),
                 completion_tokens=data.get("eval_count", 0),
                 latency_s=time.perf_counter() - start,
-            ),
-        )
+            )
+            span.set_attributes(
+                {
+                    "gen_ai.usage.input_tokens": usage.prompt_tokens,
+                    "gen_ai.usage.output_tokens": usage.completion_tokens,
+                }
+            )
+            return LLMResult(data.get("message", {}).get("content", ""), self.model, usage)
 
     def generate(
         self, messages: Sequence[Message], *, temperature: float = 0.0, max_tokens: int = 1024

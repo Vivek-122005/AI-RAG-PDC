@@ -45,7 +45,7 @@ forbids business logic (pipelines, retrieval, evaluation) from importing concret
 
 | Module | Responsibility | Key files |
 |---|---|---|
-| `core/` | Settings from env/`.env` (12-factor), structured logging | `config.py`, `logging.py` |
+| `core/` | Settings from env/`.env` (12-factor), structured logging, OpenTelemetry tracing | `config.py`, `logging.py`, `telemetry.py` |
 | `domain/` | Plain data types shared by all layers: `Block`, `Document`, `Chunk`, `SearchHit`, stable IDs | `documents.py`, `search.py` |
 | `llm/` | `LLM` Protocol (generate, structured output, stream) + Ollama adapter | `base.py`, `ollama.py` |
 | `indexing/` | `Embedder` Protocol, fastembed adapter, Qdrant collection and hybrid search | `embedder.py`, `fastembed.py`, `store.py` |
@@ -117,6 +117,36 @@ On the 216 chunks of the sample corpus the injection rules flag nothing, and PII
 detection finds only the authors' real e-mail addresses. `tests/redteam/` holds the
 adversarial suite (direct and indirect injection, PII, fabricated citations, prompt
 leaks, false positives); it runs with the unit tests in CI.
+
+## Observability
+
+**Traces.** Every request is one OpenTelemetry trace. Spans are created through the OTel
+API, a no-op unless `TRACING=console|otlp` installs the SDK, so tracing costs nothing when off.
+
+```
+rag.answer                        guarded pipeline: rag.blocked_by, rag.refused
+└─ agent.run                      rag.agent.retries, token totals
+   ├─ agent.plan                  rag.subjects, rag.queries
+   │  └─ chat qwen3:4b-instruct   gen_ai.request.model, gen_ai.usage.input/output_tokens
+   ├─ agent.retrieve (×n)         one per query, on worker threads (context propagated)
+   │  └─ retrieval.retrieve       candidates, filtered_out (guardrail), returned
+   │     ├─ vectorstore.search    db.system=qdrant, mode, hits
+   │     └─ retrieval.rerank
+   ├─ agent.gather                rag.evidence
+   ├─ agent.draft                 rag.refused
+   ├─ agent.critique              rag.decision, rag.critique.grounded, rag.uncovered_subjects
+   └─ agent.replan                rag.strategy (search+widen | widen)
+```
+
+`make traces` starts Jaeger (optional Compose profile, 256 MB cap); set `TRACING=otlp` and
+open http://localhost:16686. **Logs** carry the active `trace_id`/`span_id`, so a log line
+leads to its trace.
+
+**Failure taxonomy.** Each eval report classifies every failed item by the stage that broke
+(`evaluation/taxonomy.py`): retrieval miss, rerank miss, drafter refusal, critic false
+reject, wrong answer, unfaithful, hallucinated answer, guardrail block. Each failure is
+listed with a one-line trace (`plan → retrieve x3 → draft(refused) → critique(retry) → …`).
+That answers "which node went wrong" offline, with no dashboard service to run.
 
 ## Conventions
 

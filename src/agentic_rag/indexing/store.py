@@ -6,6 +6,7 @@ from typing import Any
 
 from qdrant_client import QdrantClient, models
 
+from agentic_rag.core.telemetry import tracer
 from agentic_rag.domain.documents import Chunk, Document
 from agentic_rag.domain.search import SearchHit
 from agentic_rag.indexing.embedder import Embedder, SparseVec
@@ -127,6 +128,22 @@ class QdrantStore:
         doc_ids: Sequence[str] | None = None,
     ) -> list[SearchHit]:
         """mode: 'hybrid' (dense + BM25 fused with RRF), 'dense' or 'sparse'."""
+        with tracer().start_as_current_span("vectorstore.search") as span:
+            span.set_attributes(
+                {"db.system": "qdrant", "rag.search.mode": mode, "rag.search.limit": limit}
+            )
+            hits = self._search(query, limit, mode, prefetch_limit, doc_ids)
+            span.set_attribute("rag.search.hits", len(hits))
+            return hits
+
+    def _search(
+        self,
+        query: str,
+        limit: int,
+        mode: str,
+        prefetch_limit: int,
+        doc_ids: Sequence[str] | None,
+    ) -> list[SearchHit]:
         dense, sparse = self.embedder.embed_query(query)
         flt = (
             models.Filter(

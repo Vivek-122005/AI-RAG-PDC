@@ -7,8 +7,11 @@ install:
 up:
 	docker compose up -d --wait
 
+traces:  ## optional Jaeger trace viewer on http://localhost:16686 (set TRACING=otlp)
+	docker compose --profile observability up -d jaeger
+
 down:
-	docker compose down
+	docker compose --profile observability down
 
 lint:
 	uv run ruff check .

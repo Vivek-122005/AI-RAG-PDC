@@ -4,6 +4,7 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Literal, Protocol
 
+from agentic_rag.core.telemetry import tracer
 from agentic_rag.domain.search import SearchHit
 from agentic_rag.indexing.store import QdrantStore
 from agentic_rag.retrieval.rerank import Reranker
@@ -48,7 +49,19 @@ class Retriever:
 
     def retrieve(self, query: str) -> RetrievalResult:
         cfg = self.config
-        candidates = self.store.search(query, limit=cfg.candidates, mode=cfg.mode)
-        if self.passage_filter is not None:
-            candidates = [h for h in candidates if self.passage_filter(h.text)]
-        return RetrievalResult(self.reranker.rerank(query, candidates, cfg.top_k), candidates)
+        with tracer().start_as_current_span("retrieval.retrieve") as span:
+            candidates = self.store.search(query, limit=cfg.candidates, mode=cfg.mode)
+            found = len(candidates)
+            if self.passage_filter is not None:
+                candidates = [h for h in candidates if self.passage_filter(h.text)]
+            with tracer().start_as_current_span("retrieval.rerank"):
+                contexts = self.reranker.rerank(query, candidates, cfg.top_k)
+            span.set_attributes(
+                {
+                    "rag.retrieval.mode": cfg.mode,
+                    "rag.retrieval.candidates": found,
+                    "rag.retrieval.filtered_out": found - len(candidates),
+                    "rag.retrieval.returned": len(contexts),
+                }
+            )
+            return RetrievalResult(contexts, candidates)

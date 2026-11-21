@@ -11,6 +11,7 @@ from agentic_rag import __version__
 from agentic_rag.cli import evaluate, index, query
 from agentic_rag.core.config import get_settings
 from agentic_rag.core.logging import configure_logging
+from agentic_rag.core.telemetry import configure_from_settings
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -26,4 +27,5 @@ def main(argv: list[str] | None = None) -> None:
     args = build_parser().parse_args(argv)
     settings = get_settings()
     configure_logging(settings)
+    configure_from_settings(settings)
     sys.exit(args.handler(args, settings))

@@ -31,6 +31,12 @@ class ItemResult:
         return [records.hit_from_record(r) for r in self.answer["candidates"]]
 
     @property
+    def shown(self) -> list[SearchHit]:
+        """Every passage the generator saw (all agent rounds); falls back to contexts."""
+        rows = self.answer.get("shown") or self.answer["contexts"]
+        return [records.hit_from_record(r) for r in rows]
+
+    @property
     def cites_gold_evidence(self) -> bool:
         ctx = self.contexts
         cited = [ctx[i - 1] for i in self.answer["cited_ids"] if i <= len(ctx)]

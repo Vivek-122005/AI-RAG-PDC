@@ -11,6 +11,7 @@ Layers, from outside in:
 import time
 from dataclasses import replace
 
+from agentic_rag.core.telemetry import tracer
 from agentic_rag.guardrails import InputGuard, OutputGuard
 from agentic_rag.pipelines.answer import Answer, AnswerPipeline
 from agentic_rag.pipelines.prompts import REFUSAL
@@ -37,6 +38,19 @@ class GuardedPipeline:
         self.inner.unload()
 
     def answer(self, question: str) -> Answer:
+        with tracer().start_as_current_span("rag.answer") as span:
+            ans = self._answer(question)
+            span.set_attributes(
+                {
+                    "rag.pipeline": type(self.inner).__name__,
+                    "rag.refused": ans.refused,
+                    "rag.blocked_by": ans.blocked_by or "",
+                    "rag.contexts": len(ans.contexts),
+                }
+            )
+            return ans
+
+    def _answer(self, question: str) -> Answer:
         t0 = time.perf_counter()
         decision = self.input_guard.check(question)
         if not decision.allowed:

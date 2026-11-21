@@ -47,6 +47,8 @@ class Answer:
     timings: dict[str, float] = field(default_factory=dict)
     trace: list[dict[str, Any]] = field(default_factory=list)  # agent steps, for debugging
     blocked_by: str | None = None  # guardrail that stopped or replaced the answer
+    # Every passage the drafter saw across retries (agent); empty means just `contexts`.
+    shown: list[SearchHit] = field(default_factory=list)
 
     @property
     def refused(self) -> bool:
