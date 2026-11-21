@@ -51,7 +51,8 @@ forbids business logic (pipelines, retrieval, evaluation) from importing concret
 | `indexing/` | `Embedder` Protocol, fastembed adapter, Qdrant collection and hybrid search | `embedder.py`, `fastembed.py`, `store.py` |
 | `ingestion/` | **Write path**: load files → structure-aware chunks → idempotent upsert | `loaders.py`, `chunking.py`, `pipeline.py` |
 | `retrieval/` | **Read path**: hybrid candidate search → cross-encoder rerank | `retriever.py`, `rerank.py` |
-| `pipelines/` | Answer pipelines returning `Answer`. Baseline now, agentic graph in Phase 3 | `baseline.py`, `answer.py`, `prompts.py` |
+| `pipelines/` | Answer pipelines returning `Answer`: the one-shot baseline (control group) and the self-correcting agent | `baseline.py`, `answer.py`, `prompts.py` |
+| `pipelines/agent/` | LangGraph agent: planner, per-query retrieval, drafter, critic, re-plan. Decision rules are pure functions | `graph.py`, `policy.py`, `evidence.py`, `schemas.py`, `prompts.py` |
 | `evaluation/` | Golden datasets, synthesis, LLM judge, metrics, reports, ablations | `runner.py`, `metrics.py`, `report.py` |
 | `factory.py` | Builds concrete objects from `Settings`. The only place that picks implementations | |
 | `api/` | FastAPI app (health now, streaming query endpoints in Phase 6) | `main.py` |
@@ -68,7 +69,21 @@ cli.index → ingestion.pipeline
                    └─ Embedder → dense + BM25 sparse vectors → Qdrant
 ```
 
-**Answer** (`rag ask "<question>"`)
+**Answer, agent** (`rag ask "<question>"`, add `--trace` to see each step)
+```
+cli.query → factory.make_agent → pipelines.agent.AgenticRAG.answer   (LangGraph state machine)
+  plan       LLM, structured: subjects named + self-contained sub-queries
+  retrieve   one Retriever call per query, in parallel (LangGraph Send)
+  gather     round-robin merge so every sub-question is represented; skip passages already shown
+  draft      LLM: evidence-only answer with [n] citations (partial answers allowed)
+  critique   LLM, structured: grounded? on target? what is missing? follow-up queries
+             + deterministic guards (citations present, named subjects in cited passages)
+  policy     accept │ refuse │ retry → replan: new queries + deeper ranks → retrieve …
+```
+The retry budget (`AgentConfig.max_retries`, default 2) bounds cost; an answer that is still
+ungrounded or off-target when the budget runs out becomes the refusal.
+
+**Answer, baseline** (`rag ask --pipeline baseline "<question>"`)
 ```
 cli.query → factory.make_baseline → pipelines.BaselineRAG.answer
               ├─ retrieval.Retriever   Qdrant hybrid search (RRF) → reranker → top-k
@@ -90,7 +105,10 @@ report                       → metrics.json + report.md
 - **Configuration only through `Settings`.** No `os.environ` reads in business code.
 - **Entrypoints are thin.** CLI and API handlers parse input, call one use case, format output.
   Heavy imports (ONNX models, clients) happen inside handlers so `rag --help` is instant.
-- **Prompts live next to their pipeline** (`pipelines/prompts.py`, `evaluation/judge.py`) as
+- **LLMs propose, code decides.** Planner and critic return Pydantic-validated JSON; what
+  happens next (accept, retry, refuse) is a pure function in `pipelines/agent/policy.py`,
+  so the control flow is unit-tested without a model.
+- **Prompts live next to their pipeline** (`pipelines/prompts.py`, `pipelines/agent/prompts.py`, `evaluation/judge.py`) as
   module constants, so prompt changes show up clearly in diffs and eval comparisons.
 - **Data on disk is append-only JSONL** for evaluation runs, so long local runs can resume.
 - **Typing:** `mypy --strict` on `src/` and `tests/`. **Style:** ruff (lint + format).

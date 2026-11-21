@@ -10,17 +10,21 @@ support an answer.
 
 ## Quickstart
 
-Requires [uv](https://docs.astral.sh/uv/) and Docker.
+Requires [uv](https://docs.astral.sh/uv/) and [Ollama](https://ollama.com). Docker is optional.
 
 ```bash
 cp .env.example .env
 make install      # deps + pre-commit hooks
-make up           # Qdrant
 make check        # lint + typecheck + unit tests
 make api          # http://localhost:8000/health
+ollama pull qwen3:4b-instruct && ollama pull gemma3:4b
 ```
 
-Ollama runs natively (not in Docker): `ollama pull qwen3:4b`.
+**Running on a laptop (8 GB).** By default Qdrant runs *embedded* in the Python process
+(`QDRANT_PATH=data/index`), so no Docker VM is needed. Each embedding/reranker model uses
+`ONNX_THREADS=2` and the agent retrieves one query at a time (`AGENT_MAX_CONCURRENCY=1`).
+To use a Qdrant server instead, comment out `QDRANT_PATH` and run `make up`. Embedded mode
+allows one process at a time, so don't run an eval while the API is serving.
 
 ## Ingest & search (Phase 1)
 
@@ -50,6 +54,22 @@ The golden set ([eval/datasets/golden.jsonl](eval/datasets/golden.jsonl)) has 45
 single-hop, multi-hop, cross-paper comparisons and unanswerable ones the system must refuse.
 Evidence is stored as verbatim quotes, so the set survives chunking changes.
 
+## Self-correcting agent (Phase 3)
+
+`rag ask` runs a LangGraph agent: plan → retrieve per sub-question → draft → critique →
+re-plan and retrieve again (at most 2 retries) → answer or refuse.
+
+```bash
+uv run rag ask "Which model initializes CRAG's retrieval evaluator, and which model runs Ragas's prompts?" --trace
+uv run rag ask --pipeline baseline "..."              # one-shot baseline, for comparison
+make eval RUN=agent PIPELINE=agent                    # evaluate the agent
+uv run rag eval all --run agent-no-critic --pipeline agent --no-critic   # ablations
+uv run rag eval compare baseline-v1 agent-v1 agent-no-critic           # side-by-side table
+```
+
+See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the graph and [docs/PLAN.md](docs/PLAN.md)
+for how it compares with the baseline.
+
 ## Timeline
 
 - **2026-11-11** — Repository created; project scoped and proposal written.
@@ -60,7 +80,7 @@ Evidence is stored as verbatim quotes, so the set survives chunking changes.
 - [x] Phase 0 — Foundations
 - [x] Phase 1 — Ingestion & indexing
 - [x] Phase 2 — Baseline RAG + evaluation
-- [ ] Phase 3 — Agentic orchestration
+- [x] Phase 3 — Agentic orchestration
 - [ ] Phase 4 — Guardrails
 - [ ] Phase 5 — Observability
 - [ ] Phase 6 — Serving
