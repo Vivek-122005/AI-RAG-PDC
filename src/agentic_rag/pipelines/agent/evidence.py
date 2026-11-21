@@ -73,6 +73,24 @@ def _name_tokens(subject: str) -> list[str]:
     return [_words(t, join=True).strip() for t in subject.split() if _NAME_LIKE.search(t)]
 
 
+def title_aliases(title: str) -> list[str]:
+    """Short names a paper is known by but may never spell out in a given chunk.
+
+    "Ragas: Automated Evaluation of …" → ["Ragas"] (the part before a colon), and
+    "Retrieval-Augmented Generation for …" → ["RAG"] (initials of the leading capitalised
+    words, hyphenated parts included); "Corrective Retrieval Augmented Generation" → ["CRAG"].
+    """
+    head, colon, _ = title.partition(":")
+    if colon and len(head.split()) <= 3:
+        return [head.strip()]
+    initials = []
+    for word in title.split():
+        if not word[:1].isupper():
+            break
+        initials += [part[0] for part in word.split("-") if part]
+    return ["".join(initials).upper()] if len(initials) >= 2 else []
+
+
 def missing_subjects(subjects: Sequence[str], hits: Sequence[SearchHit]) -> list[str]:
     """Subjects the question names that no given passage mentions (title or text).
 
@@ -80,9 +98,10 @@ def missing_subjects(subjects: Sequence[str], hits: Sequence[SearchHit]) -> list
     RAG paper's GPUs for a question about Ragas. Only name-like words (with a capital or a
     digit) are matched, as whole words, ignoring case and hyphens: "Self-RAG" matches
     "SELF-RAG", "RAG paper" matches "RAG-Token", but "RAG" never matches "Ragas".
-    Subjects without any name-like word cannot be checked and are skipped.
+    Subjects without any name-like word cannot be checked and are skipped. A passage also
+    "mentions" the short names of the paper it comes from (see `title_aliases`).
     """
-    texts = [f"{h.title} {h.text}" for h in hits]
+    texts = [f"{h.title} {' '.join(title_aliases(h.title))} {h.text}" for h in hits]
     haystack = "".join(_words(t, join=True) + _words(t, join=False) for t in texts)
     return [
         s

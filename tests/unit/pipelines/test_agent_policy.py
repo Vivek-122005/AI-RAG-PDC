@@ -227,3 +227,26 @@ def test_subject_coverage_levels() -> None:
     assert ev.subject_coverage(["CRAG", "Ragas"], hits) == "partial"
     assert ev.subject_coverage(["Ragas"], hits) == "none"
     assert ev.subject_coverage(["the paper"], hits) == "all"  # nothing checkable
+
+
+def test_title_aliases() -> None:
+    assert ev.title_aliases("Ragas: Automated Evaluation of Retrieval Augmented Generation") == [
+        "Ragas"
+    ]
+    assert ev.title_aliases("SELF-RAG: LEARNING TO RETRIEVE, GENERATE, AND CRITIQUE") == [
+        "SELF-RAG"
+    ]
+    assert ev.title_aliases("Retrieval-Augmented Generation for Knowledge-Intensive NLP Tasks") == [
+        "RAG"
+    ]
+    assert ev.title_aliases("Corrective Retrieval Augmented Generation") == ["CRAG"]
+    assert ev.title_aliases("notes") == []
+
+
+def test_passage_matches_its_papers_short_name() -> None:
+    rag_chunk = SearchHit(
+        "c", 1.0, "We jointly train the retriever and generator.", "d",
+        "Retrieval-Augmented Generation for Knowledge-Intensive NLP Tasks", "rag.pdf", [], 1, 1,
+    )  # fmt: skip
+    assert ev.missing_subjects(["RAG paper"], [rag_chunk]) == []
+    assert ev.missing_subjects(["Ragas"], [rag_chunk]) == ["Ragas"]

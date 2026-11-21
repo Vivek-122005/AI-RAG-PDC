@@ -166,3 +166,16 @@ def test_answer_about_the_wrong_subject_is_refused() -> None:
     assert ans.refused
     critique = next(s for s in ans.trace if s["node"] == "critique")
     assert critique["uncovered_subjects"] == ["Ragas"]
+
+
+def test_evidence_budget_scales_with_number_of_queries() -> None:
+    many = {Q: [make_hit(f"h{i}") for i in range(12)]}
+    rag = AgenticRAG(FakeRetriever(many), FakeLLM(script(PLAN_SIMPLE, ["A [1]."], [OK])))
+    assert len(rag.answer(Q).contexts) == 5  # one query → baseline-sized evidence
+
+    split = {
+        **{q: [make_hit(f"{q}-{i}") for i in range(12)] for q in PLAN_SPLIT["sub_questions"]},  # type: ignore[attr-defined]
+        Q: [make_hit(f"q-{i}") for i in range(12)],
+    }
+    llm = FakeLLM(script(PLAN_SPLIT, ["A [1] [2]."], [OK]))
+    assert len(AgenticRAG(FakeRetriever(split), llm).answer(Q).contexts) == 10  # capped

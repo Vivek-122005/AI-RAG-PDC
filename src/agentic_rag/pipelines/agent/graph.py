@@ -50,7 +50,11 @@ class AgentConfig:
     critic: bool = True  # ablation switch: critic off → return the first draft
     max_retries: int = 2  # re-plan/re-retrieve rounds after the first draft
     max_sub_questions: int = 3
-    max_evidence: int = 10  # passages shown to the drafter (~5k tokens, fits an 8k context)
+    # Passages shown to the drafter: per_query_evidence for each distinct query, capped at
+    # max_evidence (~5k tokens, fits an 8k context). A 4B drafter given 10 passages for a
+    # one-part question refuses answers it gives with 5, so single queries stay at 5.
+    per_query_evidence: int = 5
+    max_evidence: int = 10
     retrieve_depth: int = 15  # reranked hits kept per query, so a retry can widen
     max_answer_tokens: int = 400
     max_concurrency: int = 1  # retrievals run at once; >1 is faster but heavier on a laptop
@@ -237,13 +241,15 @@ class AgenticRAG:
         rounds = self._current_round(state)
         shown = set(state.get("shown", []))
         unseen = [[h for h in r.contexts if h.chunk_id not in shown] for r in rounds]
-        fresh = ev.interleave(unseen, self.config.max_evidence)
+        queries = {r.query.strip().lower() for r in rounds}
+        limit = min(self.config.max_evidence, self.config.per_query_evidence * len(queries))
+        fresh = ev.interleave(unseen, limit)
         if state["iteration"] == 0:
             evidence = fresh
         else:
             prev = state.get("evidence", [])
             cited = cited_ids(state.get("draft", ""), len(prev))
-            evidence = ev.carry_forward(prev, cited, fresh, self.config.max_evidence)
+            evidence = ev.carry_forward(prev, cited, fresh, limit)
         all_candidates = [*state.get("candidates", []), *(h for r in rounds for h in r.candidates)]
         return {
             "evidence": evidence,
