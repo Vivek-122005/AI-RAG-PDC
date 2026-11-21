@@ -11,6 +11,41 @@ services:
       interval: 5s
       timeout: 3s
       retries: 10
+    deploy:
+      resources:
+        limits:
+          memory: 512m
+
+  # The API in its production image: `make serve` (builds, starts Qdrant + API on :8000).
+  # Ollama stays on the host for GPU access. Index the shared corpus once with
+  # `docker compose run --rm api rag ingest /corpus`.
+  api:
+    build: .
+    image: agentic-rag:local
+    profiles: ["app"]
+    depends_on:
+      qdrant:
+        condition: service_healthy
+    ports:
+      - "8000:8000"
+    environment:
+      QDRANT_URL: http://qdrant:6333
+      OLLAMA_BASE_URL: ${OLLAMA_BASE_URL_FROM_DOCKER:-http://host.docker.internal:11434}
+      API_KEYS: ${API_KEYS:?set API_KEYS="key:tenant,..." (prod refuses to start without keys)}
+      TRACING: ${TRACING:-off}
+      OTLP_ENDPOINT: http://jaeger:4318
+      ONNX_THREADS: ${ONNX_THREADS:-2}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - api_data:/data
+      - ./corpus:/corpus:ro
+    deploy:
+      resources:
+        limits:
+          cpus: "2"
+          memory: 1536m
+    restart: unless-stopped
 
   # Optional trace viewer: `docker compose --profile observability up jaeger`, then set
   # TRACING=otlp and open http://localhost:16686. Not started by `make up`.
@@ -27,3 +62,4 @@ services:
 
 volumes:
   qdrant_data:
+  api_data:
