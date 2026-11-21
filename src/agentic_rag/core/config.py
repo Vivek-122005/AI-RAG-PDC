@@ -13,9 +13,17 @@ class Settings(BaseSettings):
     log_level: str = "INFO"
     log_json: bool = False
 
+    # Vector store. Set QDRANT_PATH to run Qdrant embedded in-process (stored in that folder,
+    # no server or Docker needed: the light option for a laptop). Otherwise QDRANT_URL is used.
+    # Embedded mode allows one process at a time (it holds a file lock).
+    qdrant_path: str | None = None
     qdrant_url: str = "http://localhost:6333"
     qdrant_api_key: str | None = None
     qdrant_collection: str = "documents"
+
+    # Local resource limits (an 8 GB laptop shares RAM and cores with the LLM)
+    onnx_threads: int = 2  # per embedding / reranker model; 0 = all cores
+    agent_max_concurrency: int = 1  # parallel retrievals inside one agent run
 
     # Embeddings / chunking
     dense_model: str = "BAAI/bge-small-en-v1.5"

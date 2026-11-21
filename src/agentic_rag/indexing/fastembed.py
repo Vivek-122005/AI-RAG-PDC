@@ -8,11 +8,18 @@ from agentic_rag.indexing.embedder import SparseVec
 class FastEmbedEmbedder:
     """bge-small (dense, 384-d) + Qdrant/bm25 (sparse). Models load lazily on first use."""
 
-    def __init__(self, dense_model: str, sparse_model: str, batch_size: int = 32) -> None:
+    def __init__(
+        self,
+        dense_model: str,
+        sparse_model: str,
+        batch_size: int = 32,
+        threads: int | None = None,
+    ) -> None:
         from fastembed import SparseTextEmbedding, TextEmbedding
 
-        self._dense = TextEmbedding(dense_model)
-        self._sparse = SparseTextEmbedding(sparse_model)
+        # threads caps ONNX Runtime per model; None uses every core.
+        self._dense = TextEmbedding(dense_model, threads=threads)
+        self._sparse = SparseTextEmbedding(sparse_model, threads=threads)
         self._batch_size = batch_size
         self.dense_dim = len(next(iter(self._dense.query_embed("dimension probe"))))
 

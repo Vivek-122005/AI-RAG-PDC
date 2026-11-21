@@ -53,6 +53,7 @@ class AgentConfig:
     max_evidence: int = 10  # passages shown to the drafter (~5k tokens, fits an 8k context)
     retrieve_depth: int = 15  # reranked hits kept per query, so a retry can widen
     max_answer_tokens: int = 400
+    max_concurrency: int = 1  # retrievals run at once; >1 is faster but heavier on a laptop
 
 
 @dataclass(frozen=True)
@@ -107,7 +108,10 @@ class AgenticRAG:
     def answer(self, question: str) -> Answer:
         t0 = time.perf_counter()
         start: AgentState = {"question": question, "iteration": 0, "usage": Usage(), "trace": []}
-        state = cast(AgentState, self.graph.invoke(start))
+        state = cast(
+            AgentState,
+            self.graph.invoke(start, config={"max_concurrency": self.config.max_concurrency}),
+        )
         text = state["draft"] if state.get("decision") == "accept" else REFUSAL
         timings: dict[str, float] = defaultdict(float)
         retrieve_rounds: dict[int, float] = defaultdict(float)

@@ -17,18 +17,26 @@ from agentic_rag.retrieval.retriever import RetrievalConfig, Retriever, SearchMo
 
 
 def make_qdrant_client(settings: Settings) -> QdrantClient:
+    if settings.qdrant_path:  # embedded: no server process
+        return QdrantClient(path=settings.qdrant_path)
     return QdrantClient(url=settings.qdrant_url, api_key=settings.qdrant_api_key)
 
 
+def _threads(settings: Settings) -> int | None:
+    return settings.onnx_threads or None  # 0 → let ONNX Runtime use every core
+
+
 def make_store(settings: Settings) -> QdrantStore:
-    embedder = FastEmbedEmbedder(settings.dense_model, settings.sparse_model)
+    embedder = FastEmbedEmbedder(
+        settings.dense_model, settings.sparse_model, threads=_threads(settings)
+    )
     return QdrantStore(make_qdrant_client(settings), settings.qdrant_collection, embedder)
 
 
 def make_reranker(settings: Settings, enabled: bool = True, model: str | None = None) -> Reranker:
     if not enabled:
         return NoopReranker()
-    return FastEmbedReranker(model or settings.reranker_model)
+    return FastEmbedReranker(model or settings.reranker_model, threads=_threads(settings))
 
 
 def make_retriever(
@@ -70,6 +78,6 @@ def make_agent(
         if settings.critic_model == settings.generator_model
         else make_llm(settings, settings.critic_model)
     )
-    config = config or AgentConfig()
+    config = config or AgentConfig(max_concurrency=settings.agent_max_concurrency)
     retriever = make_retriever(settings, rerank=rerank, mode=mode, top_k=config.retrieve_depth)
     return AgenticRAG(retriever, generator, critic, config)

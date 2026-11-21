@@ -14,11 +14,11 @@ class Reranker(Protocol):
 
 
 class FastEmbedReranker:
-    def __init__(self, model: str) -> None:
+    def __init__(self, model: str, threads: int | None = None) -> None:
         from fastembed.rerank.cross_encoder import TextCrossEncoder
 
         self.model = model
-        self._encoder = TextCrossEncoder(model)
+        self._encoder = TextCrossEncoder(model, threads=threads)
 
     def rerank(self, query: str, hits: Sequence[SearchHit], top_k: int) -> list[SearchHit]:
         if not hits:

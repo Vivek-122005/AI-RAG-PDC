@@ -4,6 +4,7 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from typing import Annotated, Literal
 
+import anyio
 import httpx
 import structlog
 from fastapi import Depends, FastAPI
@@ -26,6 +27,8 @@ class HealthResponse(BaseModel):
 
 
 async def qdrant_is_up(settings: Settings) -> bool:
+    if settings.qdrant_path:  # embedded: opening it here would fight the owner's file lock
+        return await anyio.Path(settings.qdrant_path).is_dir()
     client = AsyncQdrantClient(url=settings.qdrant_url, api_key=settings.qdrant_api_key, timeout=2)
     try:
         await client.get_collections()

@@ -8,6 +8,7 @@ __pycache__/
 dist/
 *.egg-info/
 data/qdrant/
+data/index/
 corpus/private/
 eval/results/
 .DS_Store
