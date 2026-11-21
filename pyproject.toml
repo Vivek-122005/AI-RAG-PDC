@@ -16,6 +16,10 @@ dependencies = [
     "fastembed>=0.6",
     "beautifulsoup4>=4.15.0",
     "langgraph>=1.0",
+    "opentelemetry-api>=1.30",
+    "opentelemetry-sdk>=1.30",
+    "opentelemetry-exporter-otlp-proto-http>=1.30",
+    "python-multipart>=0.0.20",
 ]
 
 [project.scripts]
@@ -50,6 +54,7 @@ select = ["E", "F", "I", "B", "UP", "SIM", "ASYNC", "RUF"]
 # Prompt templates read better unwrapped.
 "src/agentic_rag/pipelines/prompts.py" = ["E501"]
 "src/agentic_rag/pipelines/agent/prompts.py" = ["E501"]
+"src/agentic_rag/guardrails/injection.py" = ["E501"]  # regexes read better unbroken
 "src/agentic_rag/evaluation/synth.py" = ["E501"]
 "src/agentic_rag/evaluation/judge.py" = ["E501"]
 "tests/**" = ["E501"]
@@ -86,7 +91,7 @@ layers = [
     "agentic_rag.evaluation",
     "agentic_rag.pipelines",
     "agentic_rag.ingestion | agentic_rag.retrieval",
-    "agentic_rag.indexing | agentic_rag.llm",
+    "agentic_rag.indexing | agentic_rag.llm | agentic_rag.guardrails",
     "agentic_rag.domain",
     "agentic_rag.core",
 ]

@@ -12,7 +12,7 @@ from pathlib import Path
 import pymupdf
 from bs4 import BeautifulSoup
 
-from agentic_rag.domain.documents import Block, Document, doc_id_for, file_hash
+from agentic_rag.domain.documents import PUBLIC_TENANT, Block, Document, doc_id_for, file_hash
 
 SUPPORTED_SUFFIXES = {".pdf", ".md", ".markdown", ".txt", ".html", ".htm"}
 
@@ -234,7 +234,7 @@ _LOADERS: dict[str, Callable[[Path], tuple[str, list[Block]]]] = {
 }
 
 
-def load_document(path: Path, source: str | None = None) -> Document:
+def load_document(path: Path, source: str | None = None, tenant: str = PUBLIC_TENANT) -> Document:
     """Load any supported file. `source` is the stable identifier (default: the path)."""
     suffix = path.suffix.lower()
     if suffix not in _LOADERS:
@@ -242,7 +242,8 @@ def load_document(path: Path, source: str | None = None) -> Document:
     source = source or str(path)
     title, blocks = _LOADERS[suffix](path)
     return Document(
-        doc_id=doc_id_for(source),
+        doc_id=doc_id_for(source, tenant),
+        tenant=tenant,
         source=source,
         title=title,
         content_hash=file_hash(path),

@@ -15,3 +15,4 @@ eval/results/
 corpus/samples/
 eval/datasets/*.draft.jsonl
 .worktrees/
+data/uploads/

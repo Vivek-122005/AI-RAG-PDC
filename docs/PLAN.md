@@ -200,6 +200,15 @@ What this tells Phase 3:
 **Exit:** end-to-end streaming answer through the API in Docker.
 **Learn:** async API design, streaming, multi-tenant data isolation.
 
+**As built (2026-11-21).** All endpoints, API-key → tenant auth, tenant payload filter,
+per-tenant rate limit and answer cache, demo page at `/`. Changed from the plan:
+- No `token` events: the critic can still reject a draft, so streaming its tokens would
+  show text that is then withdrawn. Clients get `status` per node, then `citations`, `final`.
+- No Redis yet: cache and rate limiter are in-process (one replica on a laptop). They sit
+  behind small classes (`api/cache.py`, `api/security.py`) so Redis is a drop-in later.
+- API tests run the real app in-process (httpx ASGI transport, in-memory Qdrant, fake
+  LLM) instead of Testcontainers, so they run with the unit suite in seconds.
+
 ### Phase 7 — CI/CD, Eval Gates & Deployment
 1. Multi-stage Dockerfile (slim, non-root, models pre-downloaded).
 2. Full Compose stack: api + qdrant + redis + phoenix.
@@ -209,6 +218,16 @@ What this tells Phase 3:
 
 **Exit:** a public (auth-protected) URL, and a PR that degrades quality gets blocked automatically.
 **Learn:** operationalizing ML systems, regression testing for LLMs.
+
+**As built (2026-11-21).** Multi-stage non-root image with models baked in; Compose
+`app` profile (api + qdrant, Jaeger optional); CI eval gate; image build, smoke test and
+GHCR push; `scripts/loadtest.py`; [DEPLOY.md](DEPLOY.md). Changed from the plan:
+- The eval gate checks retrieval (hit_rate@5, evidence_recall@5 ≥ 0.80) rather than
+  faithfulness: retrieval is deterministic and LLM-free, so it can block a PR on a free
+  runner. Judge-scored answer quality remains a local release check.
+- No public URL yet: hosting a 4B model needs a GPU host, which is a cost decision. The
+  image runs anywhere containers run (single VM with Compose is the simplest target).
+- Load test is a small httpx script rather than locust/k6 (no extra dependency).
 
 ---
 

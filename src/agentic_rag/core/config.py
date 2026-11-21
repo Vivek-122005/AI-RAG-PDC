@@ -3,6 +3,7 @@
 from functools import lru_cache
 from typing import Literal
 
+from pydantic import SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -36,6 +37,27 @@ class Settings(BaseSettings):
     reranker_model: str = "Xenova/ms-marco-MiniLM-L-12-v2"
     retrieve_candidates: int = 20  # hybrid candidates passed to the reranker
     retrieve_top_k: int = 5  # chunks given to the LLM
+
+    # Observability: off | console | otlp (see core/telemetry.py)
+    tracing: Literal["off", "console", "otlp"] = "off"
+    otlp_endpoint: str = "http://localhost:4318"
+    service_name: str = "agentic-rag"
+
+    # HTTP API. API_KEYS="key1:tenant1,key2:tenant2"; each key reads its tenant's uploads
+    # plus the shared public corpus. With no keys, dev runs open as tenant "local"; prod
+    # refuses to start.
+    api_keys: SecretStr = SecretStr("")
+    api_rate_limit_per_minute: int = 30
+    api_max_concurrent_jobs: int = 1  # queries + ingest jobs running at once (1 on a laptop)
+    upload_dir: str = "data/uploads"
+    max_upload_mb: int = 20
+    answer_cache_size: int = 256
+    answer_cache_ttl_s: int = 3600
+    cors_origins: str = ""  # comma-separated; empty disables CORS
+
+    # Guardrails (rule-based: no extra models)
+    guardrails_enabled: bool = True
+    max_question_chars: int = 1000
 
     # LLM (local Ollama, running natively on the host)
     ollama_base_url: str = "http://localhost:11434"

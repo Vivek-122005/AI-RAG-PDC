@@ -106,11 +106,13 @@ def _group_by_section(blocks: list[Block]) -> list[tuple[tuple[str, ...], list[B
 def chunk_document(doc: Document, cfg: ChunkingConfig | None = None) -> list[Chunk]:
     cfg = cfg or ChunkingConfig()
     chunks: list[Chunk] = []
+    small: list[tuple[tuple[str, ...], list[_Unit]]] = []  # fragments under min_tokens
 
-    def emit(section: tuple[str, ...], units: list[_Unit]) -> None:
+    def emit(section: tuple[str, ...], units: list[_Unit], keep_small: bool = False) -> None:
         text = " ".join(u.text for u in units).strip()
         tokens = approx_tokens(text)
-        if tokens < cfg.min_tokens:
+        if not text or (tokens < cfg.min_tokens and not keep_small):
+            small.append((section, units))
             return
         pages = [u.page for u in units if u.page is not None]
         idx = len(chunks)
@@ -142,6 +144,9 @@ def chunk_document(doc: Document, cfg: ChunkingConfig | None = None) -> list[Chu
             has_new = True
         if current and has_new:
             emit(section, current)
+    if not chunks:  # a short document is all "fragments": keep them rather than lose it
+        for section, units in list(small):
+            emit(section, units, keep_small=True)
     return chunks
 
 

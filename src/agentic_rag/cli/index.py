@@ -17,18 +17,17 @@ def register(sub: "argparse._SubParsersAction[argparse.ArgumentParser]") -> None
 
 
 def ingest(args: argparse.Namespace, settings: Settings) -> int:
-    from agentic_rag.factory import make_store
-    from agentic_rag.ingestion.chunking import ChunkingConfig
+    from agentic_rag.factory import make_chunking_config, make_store
     from agentic_rag.ingestion.pipeline import ingest_path
 
-    config = ChunkingConfig(
-        target_tokens=settings.chunk_target_tokens,
-        max_tokens=settings.chunk_max_tokens,
-        overlap_tokens=settings.chunk_overlap_tokens,
-    )
+    config = make_chunking_config(settings)
     report = ingest_path(args.path, make_store(settings), config, force=args.force)
     for source, status in report.results.items():
         print(f"  {status:9} {source}")
+    for source, index in report.flagged:
+        print(
+            f"  warning: {source} chunk {index} looks like a prompt injection (hidden from the LLM)"
+        )
     print(report.summary())
     return 1 if report.count("failed") else 0
 

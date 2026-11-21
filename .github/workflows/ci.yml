@@ -5,18 +5,27 @@ on:
     branches: [main]
   pull_request:
 
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
 jobs:
   checks:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
       - run: uv sync --locked
       - run: uv run ruff check .
       - run: uv run ruff format --check .
       - run: uv run lint-imports
       - run: uv run mypy src tests
-      - run: uv run pytest tests/unit
+      - run: uv run pytest tests/unit tests/redteam
 
   integration:
     runs-on: ubuntu-latest
@@ -27,7 +36,41 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
       - run: uv sync --locked
       - name: Wait for Qdrant
         run: for i in $(seq 1 30); do curl -sf localhost:6333/readyz && break; sleep 2; done
       - run: uv run pytest tests/integration
+
+  # Quality gate: index the sample corpus and check retrieval against the golden set.
+  # Deterministic and LLM-free, so it can block a merge; judge-scored answer quality
+  # stays a local eval (it needs Ollama and ~1 h on a laptop).
+  eval-gate:
+    runs-on: ubuntu-latest
+    needs: checks
+    env:
+      QDRANT_PATH: data/index
+      FASTEMBED_CACHE_PATH: /home/runner/.cache/fastembed
+      ONNX_THREADS: "0"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+      - run: uv sync --locked --no-dev
+      - uses: actions/cache@v4
+        with:
+          path: |
+            corpus/samples
+            /home/runner/.cache/fastembed
+          key: eval-gate-${{ hashFiles('scripts/fetch_samples.py', 'src/agentic_rag/core/config.py') }}
+      - run: uv run python scripts/fetch_samples.py
+      - run: uv run rag ingest corpus/samples
+      - run: uv run rag eval gate --out eval/results/gate.json
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: eval-gate
+          path: eval/results/gate.json
+          if-no-files-found: ignore

@@ -17,14 +17,19 @@ Routing after the critic lives in `policy.decide`.
 import operator
 import time
 from collections import defaultdict
+from collections.abc import Callable
 from dataclasses import dataclass, replace
-from typing import Annotated, Any, TypedDict, cast
+from functools import wraps
+from typing import Annotated, Any, ParamSpec, TypedDict, cast
 
 import structlog
+from langchain_core.runnables import RunnableConfig
 from langgraph.graph import END, START, StateGraph
 from langgraph.graph.state import CompiledStateGraph
 from langgraph.types import Send
+from opentelemetry import trace
 
+from agentic_rag.core.telemetry import set_attributes, tracer
 from agentic_rag.domain.search import SearchHit
 from agentic_rag.llm.base import LLM, LLMError, Message, Usage
 from agentic_rag.pipelines.agent import evidence as ev
@@ -37,11 +42,29 @@ from agentic_rag.pipelines.agent.prompts import (
     planner_user_prompt,
 )
 from agentic_rag.pipelines.agent.schemas import Critique, Plan
-from agentic_rag.pipelines.answer import Answer, cited_ids, is_refusal
+from agentic_rag.pipelines.answer import Answer, StepCallback, cited_ids, is_refusal
 from agentic_rag.pipelines.prompts import REFUSAL, answer_user_prompt
 from agentic_rag.retrieval.retriever import EvidenceRetriever
 
 log = structlog.get_logger()
+P = ParamSpec("P")
+
+
+def _node_span(name: str) -> Callable[[Callable[P, "AgentState"]], Callable[P, "AgentState"]]:
+    """Run a graph node in an `agent.<name>` span; its trace step becomes span attributes."""
+
+    def decorator(fn: Callable[P, "AgentState"]) -> Callable[P, "AgentState"]:
+        @wraps(fn)
+        def wrapper(*args: P.args, **kwargs: P.kwargs) -> "AgentState":
+            with tracer().start_as_current_span(f"agent.{name}") as span:
+                update = fn(*args, **kwargs)
+                for step in update.get("trace", []):
+                    set_attributes(span, {k: v for k, v in step.items() if k != "node"})
+                return update
+
+        return wrapper
+
+    return decorator
 
 
 @dataclass(frozen=True)
@@ -83,7 +106,7 @@ class AgentState(TypedDict, total=False):
     past_queries: list[str]
     retrieved: Annotated[list[QueryHits], operator.add]  # written by parallel retrieve nodes
     evidence: list[SearchHit]
-    shown: list[str]  # chunk ids already given to the drafter in any round
+    shown: list[SearchHit]  # every passage given to the drafter, in any round
     candidates: list[SearchHit]
     draft: str
     critique: Critique | None
@@ -109,13 +132,39 @@ class AgenticRAG:
 
     # ── public API ────────────────────────────────────────────────────────────────
 
-    def answer(self, question: str) -> Answer:
+    def unload(self) -> None:
+        self.llm.unload()
+        if self.critic_llm is not self.llm:
+            self.critic_llm.unload()
+
+    def answer(self, question: str, on_step: StepCallback | None = None) -> Answer:
+        with tracer().start_as_current_span("agent.run") as span:
+            ans = self._run(question, on_step)
+            span.set_attributes(
+                {
+                    "rag.agent.refused": ans.refused,
+                    "rag.agent.retries": sum(1 for s in ans.trace if s["node"] == "replan"),
+                    "rag.agent.evidence": len(ans.contexts),
+                    "gen_ai.usage.input_tokens": ans.usage.prompt_tokens,
+                    "gen_ai.usage.output_tokens": ans.usage.completion_tokens,
+                }
+            )
+            return ans
+
+    def _run(self, question: str, on_step: StepCallback | None) -> Answer:
         t0 = time.perf_counter()
         start: AgentState = {"question": question, "iteration": 0, "usage": Usage(), "trace": []}
-        state = cast(
-            AgentState,
-            self.graph.invoke(start, config={"max_concurrency": self.config.max_concurrency}),
-        )
+        state = start
+        config: RunnableConfig = {"max_concurrency": self.config.max_concurrency}
+        # "updates" yields each node's output as it finishes (progress for on_step);
+        # "values" yields the full state after each step (the last one is the result).
+        for mode, chunk in self.graph.stream(start, config, stream_mode=["updates", "values"]):
+            if mode == "values":
+                state = cast(AgentState, chunk)
+            elif on_step is not None:
+                for update in cast(dict[str, AgentState | None], chunk).values():
+                    for step in (update or {}).get("trace", []):
+                        on_step(step)
         text = state["draft"] if state.get("decision") == "accept" else REFUSAL
         timings: dict[str, float] = defaultdict(float)
         retrieve_rounds: dict[int, float] = defaultdict(float)
@@ -132,6 +181,7 @@ class AgenticRAG:
             text=text,
             contexts=state.get("evidence", []),
             candidates=state.get("candidates", []),
+            shown=state.get("shown", []),
             usage=state["usage"],
             timings=dict(timings),
             trace=state["trace"],
@@ -179,6 +229,7 @@ class AgenticRAG:
 
     # ── nodes ─────────────────────────────────────────────────────────────────────
 
+    @_node_span("plan")
     def _plan(self, state: AgentState) -> AgentState:
         t0 = time.perf_counter()
         question = state["question"]
@@ -217,6 +268,7 @@ class AgenticRAG:
             "trace": [step],
         }
 
+    @_node_span("retrieve")
     def _retrieve(self, task: RetrieveTask) -> AgentState:
         t0 = time.perf_counter()
         result = self.retriever.retrieve(task["query"])
@@ -237,9 +289,11 @@ class AgenticRAG:
         it = state["iteration"]
         return sorted((r for r in state["retrieved"] if r.iteration == it), key=lambda r: r.index)
 
+    @_node_span("gather")
     def _gather(self, state: AgentState) -> AgentState:
         rounds = self._current_round(state)
-        shown = set(state.get("shown", []))
+        shown_hits = state.get("shown", [])
+        shown = {h.chunk_id for h in shown_hits}
         unseen = [[h for h in r.contexts if h.chunk_id not in shown] for r in rounds]
         queries = {r.query.strip().lower() for r in rounds}
         limit = min(self.config.max_evidence, self.config.per_query_evidence * len(queries))
@@ -251,12 +305,14 @@ class AgenticRAG:
             cited = cited_ids(state.get("draft", ""), len(prev))
             evidence = ev.carry_forward(prev, cited, fresh, limit)
         all_candidates = [*state.get("candidates", []), *(h for r in rounds for h in r.candidates)]
+        trace.get_current_span().set_attribute("rag.evidence", len(evidence))
         return {
             "evidence": evidence,
-            "shown": [*shown, *(h.chunk_id for h in evidence if h.chunk_id not in shown)],
+            "shown": [*shown_hits, *(h for h in evidence if h.chunk_id not in shown)],
             "candidates": ev.interleave([all_candidates], len(all_candidates)),
         }
 
+    @_node_span("draft")
     def _draft(self, state: AgentState) -> AgentState:
         t0 = time.perf_counter()
         evidence = state["evidence"]
@@ -282,6 +338,7 @@ class AgenticRAG:
         decision: Decision = "refuse" if is_refusal(draft) else "accept"
         return {"draft": draft, "usage": usage, "decision": decision, "trace": [step]}
 
+    @_node_span("critique")
     def _critique(self, state: AgentState) -> AgentState:
         t0 = time.perf_counter()
         draft, evidence = state["draft"], state["evidence"]
@@ -309,7 +366,7 @@ class AgenticRAG:
         next_queries = ev.unique_queries(critique.follow_up_queries, exclude=state["past_queries"])[
             : self.config.max_sub_questions
         ]
-        shown = set(state["shown"])
+        shown = {h.chunk_id for h in state["shown"]}
         can_widen = any(
             h.chunk_id not in shown for r in self._current_round(state) for h in r.contexts
         )
@@ -341,6 +398,7 @@ class AgenticRAG:
         }
 
     @classmethod
+    @_node_span("replan")
     def _replan(cls, state: AgentState) -> AgentState:
         queries = state["next_queries"]
         it = state["iteration"] + 1
