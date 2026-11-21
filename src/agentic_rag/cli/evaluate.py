@@ -28,6 +28,13 @@ def register(sub: "argparse._SubParsersAction[argparse.ArgumentParser]") -> None
     s.add_argument("--out", type=Path, default=Path("eval/datasets/golden.draft.jsonl"))
     s.set_defaults(handler=synth)
 
+    s = stages.add_parser("gate", help="CI quality gate: retrieval metrics vs thresholds (no LLM)")
+    s.add_argument("--dataset", type=Path, default=Path("eval/datasets/golden.jsonl"))
+    s.add_argument("--min-hit-rate", type=float, default=0.80, help="hit_rate@k floor")
+    s.add_argument("--min-recall", type=float, default=0.80, help="evidence_recall@k floor")
+    s.add_argument("--out", type=Path, help="also write the metrics as JSON")
+    s.set_defaults(handler=gate)
+
     s = stages.add_parser("compare", help="compare finished runs side by side")
     s.add_argument("runs", nargs="+", help=f"run names under {RESULTS_DIR}/")
     s.add_argument("--out", type=Path, help="also write the table to this markdown file")
@@ -76,6 +83,29 @@ def compare(args: argparse.Namespace, settings: Settings) -> int:
     if args.out:
         args.out.write_text(table)
     return 0
+
+
+def gate(args: argparse.Namespace, settings: Settings) -> int:
+    """Fail (exit 1) when the production retriever falls below the floors.
+
+    Retrieval is deterministic and needs no LLM, so this runs in CI on every change;
+    answer quality (judge-scored) stays a local, manual eval.
+    """
+    from agentic_rag.evaluation.ablation import run_retrieval_ablation
+    from agentic_rag.evaluation.dataset import load_dataset
+    from agentic_rag.factory import make_retriever
+
+    row = run_retrieval_ablation(load_dataset(args.dataset), {"prod": make_retriever(settings)})[0]
+    k = settings.retrieve_top_k
+    checks = {f"hit_rate@{k}": args.min_hit_rate, f"evidence_recall@{k}": args.min_recall}
+    failed = [m for m, floor in checks.items() if row[m] < floor]
+    for metric, floor in checks.items():
+        mark = "FAIL" if metric in failed else "ok"
+        print(f"{mark:4}  {metric:20} {row[metric]:.3f}  (floor {floor:.2f})")
+    if args.out:
+        args.out.parent.mkdir(parents=True, exist_ok=True)
+        args.out.write_text(json.dumps(row | {"floors": checks, "passed": not failed}, indent=2))
+    return 1 if failed else 0
 
 
 def run_stage(args: argparse.Namespace, settings: Settings) -> int:
