@@ -1,4 +1,4 @@
-.PHONY: install up down lint format typecheck test test-integration api check samples ingest eval eval-retrieval
+.PHONY: install up down traces lint format typecheck test test-integration api check samples ingest eval eval-retrieval eval-gate image serve loadtest
 
 install:
 	uv sync
@@ -11,7 +11,7 @@ traces:  ## optional Jaeger trace viewer on http://localhost:16686 (set TRACING=
 	docker compose --profile observability up -d jaeger
 
 down:
-	docker compose --profile observability down
+	docker compose --profile observability --profile app down
 
 lint:
 	uv run ruff check .
@@ -36,6 +36,15 @@ api:
 
 check: lint typecheck test
 
+image:  ## production image (multi-stage, non-root, models baked in)
+	docker build -t agentic-rag:local .
+
+serve:  ## Qdrant + API in containers on :8000 (needs API_KEYS; Ollama on the host)
+	docker compose --profile app up -d --build --wait
+
+loadtest:  ## light load test against a running API: make loadtest [N=20 C=2 URL=...]
+	uv run python scripts/loadtest.py --requests $(or $(N),20) --concurrency $(or $(C),2) --url $(or $(URL),http://localhost:8000) --key "$(KEY)"
+
 samples:
 	uv run python scripts/fetch_samples.py
 
@@ -50,3 +59,6 @@ eval:  ## full eval: make eval RUN=my-run [PIPELINE=agent]
 
 eval-retrieval:  ## retrieval-only ablation (no LLM)
 	uv run rag eval retrieval --run $(RUN)
+
+eval-gate:  ## CI quality gate: retrieval metrics vs floors (no LLM)
+	uv run rag eval gate
